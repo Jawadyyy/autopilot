@@ -1,26 +1,55 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --background: #020814;
+  --surface: #071c35;
+  --surface-soft: #0b2946;
+  --surface-strong: #112e54;
+  --text: #eef2ff;
+  --muted: #9ab7d7;
+  --border: rgba(255, 255, 255, 0.08);
+  --accent: #2f75ff;
+  --accent-secondary: #f6b461;
+  --accent-soft: #ff8b4a;
+  --success: #57d68d;
+  --warning: #ffca6c;
+  --danger: #ff5e5e;
 }
 
 @theme inline {
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-foreground: var(--text);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background-image:
+    radial-gradient(circle at top left, rgba(47, 117, 255, 0.14), transparent 24%),
+    linear-gradient(180deg, rgba(2, 8, 20, 0.96), rgba(6, 18, 38, 1));
+  color: var(--text);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(47, 117, 255, 0.22);
 }
