@@ -2,125 +2,148 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
-const navItems = [
-  { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Connections', href: '/connections' },
-  { label: 'Live Health', href: '/live-health' },
-  { label: 'Query Plan Diff', href: '/plan-diff' },
-  { label: 'Locks', href: '/locks' },
-  { label: 'Autopilot Rules', href: '/autopilot' },
-  { label: 'Schema Browser', href: '/schema' },
-  { label: 'Backup', href: '/backup' },
-  { label: 'OLAP Analytics', href: '/olap' },
-  { label: 'JSON Explorer', href: '/json-explorer' },
-  { label: 'Performance Report', href: '/report' },
-  { label: 'Login', href: '/login' },
+const mainNavItems = [
+  { label: 'Dashboard', href: '/dashboard', icon: '📊' },
+  { label: 'Connections', href: '/connections', icon: '🔗' },
+  { label: 'Live Feed', href: '/live-health', icon: '🔴' },
+  { label: 'Query Diff', href: '/plan-diff', icon: '⚡' },
+  { label: 'Concurrency', href: '/locks', icon: '🔒' },
+  { label: 'Rules', href: '/autopilot', icon: '⚙️' },
+  { label: 'Schema', href: '/schema', icon: '📑' },
+  { label: 'Backup', href: '/backup', icon: '💾' },
+  { label: 'OLAP Analytics', href: '/olap', icon: '📈' },
+  { label: 'JSON Explorer', href: '/json-explorer', icon: '💾' },
+  { label: 'Reports', href: '/report', icon: '📋' },
+]
+
+const systemNavItems = [
+  { label: 'Settings', href: '/settings', icon: '⚙️' },
+  { label: 'Support', href: '/support', icon: '❓' },
 ]
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
-  const [authToken, setAuthToken] = useState<string | null>(null)
-  const [showSplash, setShowSplash] = useState(false)
+  const router = useRouter()
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [userName, setUserName] = useState<string | null>(null)
 
   useEffect(() => {
-    setAuthToken(window.localStorage.getItem('db-autopilot-token'))
-
-    const splashSeen = window.sessionStorage.getItem('db-autopilot-splash-shown')
-    if (!splashSeen) {
-      window.sessionStorage.setItem('db-autopilot-splash-shown', 'true')
-      setShowSplash(true)
-      const timer = window.setTimeout(() => setShowSplash(false), 1300)
-      return () => window.clearTimeout(timer)
-    }
+    const role = localStorage.getItem('user_role')
+    const name = localStorage.getItem('user_name')
+    setUserRole(role)
+    setUserName(name)
   }, [])
 
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('user_role')
+    localStorage.removeItem('user_name')
+    router.push('/login')
+  }
+
   return (
-    <div className="min-h-screen bg-[#030814] text-white">
-      {showSplash ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#20070b]/95 px-4 py-6 text-center">
-          <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-[#2b090f]/95 p-8 shadow-[0_30px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-            <div className="flex items-center justify-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#4c0914] ring-2 ring-[#dc2626]/30">
-                <div className="h-10 w-10 rounded-full bg-[#dc2626] animate-pulse" />
-              </div>
-            </div>
-            <div className="mt-6">
-              <p className="text-xs uppercase tracking-[0.35em] text-[#fca5a5]">DB Autopilot</p>
-              <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white">Starting application</h2>
-              <p className="mt-3 text-sm leading-7 text-slate-300">
-                Loading your database monitoring workspace and connecting to live data.
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      <div className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-[#0a2b5b] to-transparent opacity-80" />
-        <div className="relative mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8">
-          <div className="mb-6 flex flex-col gap-4 rounded-[2rem] border border-white/10 bg-[#071a30]/95 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.25)] sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-h-screen bg-[#050507] text-white">
+      <div className="flex h-screen">
+        {/* Sidebar */}
+        <aside className="w-48 bg-[#0a0f1a] border-r border-white/10 flex flex-col">
+          {/* Logo */}
+          <div className="p-6 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <div className="relative flex h-12 w-12 items-center justify-center rounded-3xl bg-[#4c0914] text-lg font-semibold text-[#fecaca] shadow-[0_12px_30px_rgba(220,38,38,0.18)]">
-                <span className="absolute inset-0 rounded-3xl bg-gradient-to-br from-[#dc2626] to-[#fca5a5]/30 opacity-25" />
-                <span className="relative">DB</span>
-                <span className="absolute -right-1 -top-1 inline-flex h-3.5 w-3.5 rounded-full bg-[#fb7185] after:absolute after:inset-0 after:rounded-full after:animate-ping after:bg-[#fb7185]/40" />
+              <div className="w-8 h-8 bg-[#2f75ff] rounded-lg flex items-center justify-center text-sm font-bold">
+                📊
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.32em] text-[#fecaca]">DB Autopilot</p>
-                <p className="text-sm font-semibold text-white/90">Realtime database ops</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-[#7faaff]">DB Autopilot</p>
+                <p className="text-xs text-slate-400">SRE Center</p>
               </div>
-            </div>
-            <div className="hidden items-center gap-3 text-xs uppercase tracking-[0.24em] text-slate-400 sm:flex">
-              <span className="rounded-full bg-[#7f1d1d]/10 px-3 py-1 text-[#fecaca]">Crimson UI</span>
-              <span className="rounded-full bg-[#fca5a5]/10 px-3 py-1 text-[#f87171]">Live ops</span>
             </div>
           </div>
 
-          <div className="relative z-10 grid gap-6 lg:grid-cols-[220px_1fr]">
-            <aside className="hidden lg:block">
-              <div className="sticky top-6 space-y-6 rounded-[2rem] border border-white/10 bg-[#081b34]/95 p-3 shadow-[0_30px_80px_rgba(0,0,0,0.2)]">
-                <div className="rounded-[1.75rem] bg-[#33060c]/90 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.3em] text-[#fecaca]">Workspace</p>
-                  <p className="mt-2 text-sm font-semibold text-white">Monitoring center</p>
-                </div>
-                <nav className="flex flex-col gap-1.5">
-                  {navItems.map((item) => {
-                    const active = pathname === item.href
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className={`group flex items-center gap-3 rounded-3xl px-4 py-2.5 text-[13px] font-medium transition ${
-                          active
-                            ? 'bg-[#7f1d1d] text-white shadow-[0_8px_24px_rgba(220,38,38,0.14)]'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white'
-                        }`}
-                      >
-                        <span>{item.label}</span>
-                      </Link>
-                    )
-                  })}
-                </nav>
+          {/* Main Navigation */}
+          <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+            {mainNavItems.map((item) => {
+              const active = pathname === item.href
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition ${
+                    active
+                      ? 'bg-[#2f75ff]/20 text-[#2f75ff] border border-[#2f75ff]/30'
+                      : 'text-slate-300 hover:bg-white/5'
+                  }`}
+                >
+                  <span className="text-lg">{item.icon}</span>
+                  <span>{item.label}</span>
+                </Link>
+              )
+            })}
+          </nav>
 
-                <div className="rounded-[1.75rem] border border-white/10 bg-[#081a37]/95 p-4 text-sm text-slate-300">
-                  <p className="font-semibold text-white">Session</p>
-                  <p className="mt-2 text-xs leading-5 text-slate-400">
-                    Use this sidebar to move between dashboards, live health, and managed database controls.
-                  </p>
-                  <p className="mt-3 text-xs uppercase tracking-[0.24em] text-[#fecaca]">
-                    {authToken ? 'Authenticated' : 'Guest mode'}
-                  </p>
-                </div>
+          {/* System Navigation */}
+          <div className="border-t border-white/10 p-3 space-y-1">
+            {systemNavItems.map((item) => {
+              const active = pathname === item.href
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition ${
+                    active
+                      ? 'bg-[#2f75ff]/20 text-[#2f75ff] border border-[#2f75ff]/30'
+                      : 'text-slate-300 hover:bg-white/5'
+                  }`}
+                >
+                  <span className="text-lg">{item.icon}</span>
+                  <span>{item.label}</span>
+                </Link>
+              )
+            })}
+          </div>
+
+          {/* User Info */}
+          <div className="border-t border-white/10 p-4 space-y-3">
+            <div className="text-xs">
+              <p className="text-slate-400 uppercase tracking-widest">Role</p>
+              <p className="text-white font-semibold capitalize mt-1">
+                {userRole?.replace('_', ' ') || 'Guest'}
+              </p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-white/5 rounded transition"
+            >
+              Logout
+            </button>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 flex flex-col overflow-hidden">
+          {/* Header */}
+          <header className="border-b border-white/10 bg-[#0a0f1a]/50 px-8 py-4 flex items-center justify-between">
+            <div className="flex-1" />
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-xs text-slate-400 uppercase tracking-widest">Connected</p>
+                <p className="text-sm font-semibold text-green-400">● System Online</p>
               </div>
-            </aside>
+              <div className="w-10 h-10 rounded-lg bg-[#2f75ff]/20 flex items-center justify-center text-[#2f75ff] font-semibold">
+                {userName?.charAt(0).toUpperCase() || 'A'}
+              </div>
+            </div>
+          </header>
 
-            <main className="flex min-w-0 min-h-[calc(100vh-150px)] flex-col gap-6">
+          {/* Content Area */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-8">
               {children}
-            </main>
+            </div>
           </div>
-        </div>
+        </main>
       </div>
     </div>
   )

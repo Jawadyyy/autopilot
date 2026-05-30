@@ -2,250 +2,134 @@
 
 import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
-import PageHeader from '../components/PageHeader'
-
-interface ConnectionCard {
-  id: string
-  name: string
-  host: string
-  port: number
-  db_name: string
-  db_type: string
-  status: string
-  last_checked_at: string | null
-  last_error: string | null
-}
-
-const sampleConnections: ConnectionCard[] = [
-  {
-    id: '1',
-    name: 'Orders DB',
-    host: 'orders-prod.db.local',
-    port: 5432,
-    db_name: 'orders',
-    db_type: 'postgresql',
-    status: 'active',
-    last_checked_at: '2m ago',
-    last_error: null,
-  },
-  {
-    id: '2',
-    name: 'Inventory MS',
-    host: 'inventory-sql.prod',
-    port: 1433,
-    db_name: 'inventory',
-    db_type: 'mssql',
-    status: 'paused',
-    last_checked_at: '5m ago',
-    last_error: 'Sync paused for maintenance',
-  },
-  {
-    id: '3',
-    name: 'Analytics',
-    host: 'analytics.db.internal',
-    port: 5432,
-    db_name: 'analytics',
-    db_type: 'postgresql',
-    status: 'active',
-    last_checked_at: '1m ago',
-    last_error: null,
-  },
-]
+import { CLUSTERS, HEALTH_EVENTS } from '@/lib/mockData'
 
 export default function DashboardPage() {
-  const [connections, setConnections] = useState<ConnectionCard[]>(sampleConnections)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [events, setEvents] = useState(HEALTH_EVENTS)
 
   useEffect(() => {
-    const token = window.localStorage.getItem('db-autopilot-token')
-    if (!token) {
-      setError('Please log in to view the dashboard.')
-      setLoading(false)
-      return
-    }
-
-    fetch('/api/connections', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const body = await res.json()
-          throw new Error(body?.message || 'Failed to load connections')
-        }
-        return res.json()
-      })
-      .then((result) => {
-        setConnections(result.data ?? result)
-      })
-      .catch((err) => {
-        setError(err.message)
-      })
-      .finally(() => setLoading(false))
+    // Simulate live updates
+    const interval = setInterval(() => {
+      setEvents(prev => [...prev.slice(-4), {
+        ...prev[0],
+        id: `evt-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+      }])
+    }, 5000)
+    return () => clearInterval(interval)
   }, [])
 
   return (
     <AppShell>
-      <PageHeader
-        title="Global Dashboard"
-        description="Live observability across external PostgreSQL and MSSQL sources, with automated issue detection and performance signals in one place."
-        tag="Health Overview"
-      />
-
-      {loading ? (
-        <div className="rounded-[2rem] border border-white/10 bg-[#081a31]/95 p-10 text-center text-sm text-slate-400">
-          Loading monitored connections…
+      <div className="space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-3xl font-bold text-white">Global Fleet Overview</h1>
+          <p className="text-slate-400 mt-2">Monitoring {CLUSTERS.length} active clusters across {CLUSTERS.reduce((sum, c) => sum + c.connections.length, 0)} regions</p>
         </div>
-      ) : error ? (
-        <div className="rounded-[2rem] border border-[#ff5e5e]/20 bg-[#2c1318]/95 p-10 text-sm text-[#ff9a9a]">
-          {error}
-        </div>
-      ) : (
-        <div className="grid gap-6">
-          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-[1.75rem] border border-white/10 bg-[#081d3c]/95 p-6 shadow-[0_24px_50px_rgba(0,0,0,0.24)]">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Monitored sources</p>
-              <p className="mt-4 text-4xl font-semibold text-white">{connections.length}</p>
-              <p className="mt-3 text-sm text-slate-400">Active database targets</p>
-            </div>
-            <div className="rounded-[1.75rem] border border-white/10 bg-[#081d3c]/95 p-6 shadow-[0_24px_50px_rgba(0,0,0,0.24)]">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Realtime events</p>
-              <p className="mt-4 text-4xl font-semibold text-[#7faaff]">72</p>
-              <p className="mt-3 text-sm text-slate-400">Events in the last hour</p>
-            </div>
-            <div className="rounded-[1.75rem] border border-white/10 bg-[#081d3c]/95 p-6 shadow-[0_24px_50px_rgba(0,0,0,0.24)]">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Avg latency</p>
-              <p className="mt-4 text-4xl font-semibold text-white">320ms</p>
-              <p className="mt-3 text-sm text-slate-400">Rolling 30-minute average</p>
-            </div>
-            <div className="rounded-[1.75rem] border border-white/10 bg-[#081d3c]/95 p-6 shadow-[0_24px_50px_rgba(0,0,0,0.24)]">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Health score</p>
-              <p className="mt-4 text-4xl font-semibold text-[#2f75ff]">84</p>
-              <p className="mt-3 text-sm text-slate-400">Overall system rating</p>
-            </div>
-          </div>
 
-          <div className="grid gap-6 xl:grid-cols-[1.4fr_0.95fr]">
-            <section className="rounded-[2rem] border border-white/10 bg-[#081d3c]/95 p-6 shadow-[0_28px_70px_rgba(0,0,0,0.22)]">
-              <div className="flex items-center justify-between gap-4">
+        {/* Cluster Status Cards */}
+        <div className="grid gap-4 md:grid-cols-3">
+          {CLUSTERS.map(cluster => (
+            <div key={cluster.id} className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6 hover:border-[#2f75ff]/30 transition">
+              <div className="flex items-start justify-between mb-4">
                 <div>
-                  <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Database status</p>
-                  <h2 className="mt-3 text-xl font-semibold text-white">Connection health</h2>
+                  <h3 className="font-semibold text-white">{cluster.name}</h3>
+                  <p className="text-xs text-slate-400 mt-1">{cluster.region}</p>
                 </div>
-                <span className="rounded-full bg-[#2f75ff]/15 px-3 py-1 text-xs font-semibold uppercase text-[#8ab9ff]">
-                  Live sync
-                </span>
+                <div className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                  cluster.status === 'healthy' ? 'bg-green-500/20 text-green-300' :
+                  cluster.status === 'warning' ? 'bg-yellow-500/20 text-yellow-300' :
+                  'bg-red-500/20 text-red-300'
+                }`}>
+                  ● {cluster.status === 'healthy' ? 'Healthy' : cluster.status === 'warning' ? 'Warning' : 'Critical'}
+                </div>
               </div>
 
-              <div className="mt-6 overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#071a30]/95">
-                <table className="min-w-full text-left text-sm text-slate-300">
-                  <thead className="bg-[#091c33]/95 text-xs uppercase tracking-[0.2em] text-slate-500">
-                    <tr>
-                      <th className="px-5 py-4">Source</th>
-                      <th className="px-5 py-4">Type</th>
-                      <th className="px-5 py-4">Status</th>
-                      <th className="px-5 py-4">Last checked</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {connections.map((connection) => (
-                      <tr key={connection.id} className="border-t border-white/10">
-                        <td className="px-5 py-4">
-                          <div className="text-white">{connection.name}</div>
-                          <div className="mt-1 text-xs text-slate-500">{connection.host}:{connection.port}</div>
-                        </td>
-                        <td className="px-5 py-4 text-slate-300">{connection.db_type.toUpperCase()}</td>
-                        <td className="px-5 py-4">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase ${
-                            connection.status === 'active'
-                              ? 'bg-[#57d68d]/15 text-[#b8f0d1]'
-                              : connection.status === 'paused'
-                              ? 'bg-[#ffca6c]/15 text-[#ffe7b3]'
-                              : 'bg-[#ff5e5e]/15 text-[#ffb3b3]'
-                          }`}>
-                            {connection.status}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 text-slate-400">{connection.last_checked_at ?? 'N/A'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-xs text-slate-400">Active Sessions</span>
+                  <span className="text-sm font-semibold text-white">{cluster.active_sessions}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-slate-400">Uptime</span>
+                  <span className="text-sm font-semibold text-white">{cluster.uptime}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-slate-400">Query Latency</span>
+                  <span className="text-sm font-semibold text-white">{cluster.query_latency}</span>
+                </div>
               </div>
-            </section>
 
-            <section className="rounded-[2rem] border border-white/10 bg-[#081d3c]/95 p-6 shadow-[0_28px_70px_rgba(0,0,0,0.22)]">
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Performance</p>
-              <h2 className="mt-3 text-xl font-semibold text-white">Query latency trend</h2>
-              <div className="mt-6 overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#071a30]/95 p-5">
-                <div className="flex h-28 items-end gap-2">
-                  {[55, 80, 60, 70, 45, 78, 52].map((value, index) => (
-                    <div key={index} className="flex-1 rounded-t-3xl bg-gradient-to-t from-[#2f75ff] to-[#7faaff]/30" style={{ height: `${value}%` }} />
+              <div className="mt-4 pt-4 border-t border-white/10">
+                <p className="text-xs text-slate-400">Connections</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {cluster.connections.map((conn, i) => (
+                    <span key={i} className="text-xs bg-[#2f75ff]/15 text-[#8ab9ff] px-2 py-1 rounded">
+                      {conn}
+                    </span>
                   ))}
                 </div>
               </div>
-              <div className="mt-6 grid gap-3">
-                <div className="rounded-3xl bg-[#071c35]/95 p-4 text-sm text-slate-300">
-                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Average latency</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">340ms</p>
-                </div>
-                <div className="rounded-3xl bg-[#071c35]/95 p-4 text-sm text-slate-300">
-                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Slow queries</p>
-                  <p className="mt-2 text-2xl font-semibold text-[#ff8b4a]">4</p>
-                </div>
-              </div>
-            </section>
+            </div>
+          ))}
+        </div>
+
+        {/* Metrics Grid */}
+        <div className="grid gap-4 md:grid-cols-4">
+          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+            <p className="text-xs uppercase tracking-widest text-slate-400">Total Databases</p>
+            <p className="text-3xl font-bold text-white mt-3">24</p>
+            <p className="text-xs text-slate-400 mt-2">Monitored</p>
           </div>
-
-          <div className="grid gap-6 xl:grid-cols-[1.4fr_0.7fr]">
-            <section className="rounded-[2rem] border border-white/10 bg-[#081d3c]/95 p-6 shadow-[0_28px_70px_rgba(0,0,0,0.22)]">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Recent issues</p>
-                  <h2 className="mt-3 text-xl font-semibold text-white">Top incidents</h2>
-                </div>
-                <span className="rounded-full bg-[#ff8b4a]/15 px-3 py-1 text-xs font-semibold uppercase text-[#ffd3a3]">
-                  Prioritized
-                </span>
-              </div>
-              <div className="mt-6 space-y-4">
-                {[
-                  { title: 'High-load deadlock detected', status: 'Investigation' },
-                  { title: 'Long-running query on Analytics', status: 'Auto-suggest' },
-                  { title: 'Stale index on Orders DB', status: 'Optimized' },
-                ].map((item) => (
-                  <div key={item.title} className="rounded-[1.75rem] border border-white/10 bg-[#071827]/95 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-white">{item.title}</p>
-                      <span className="rounded-full bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">{item.status}</span>
-                    </div>
-                    <p className="mt-3 text-xs text-slate-400">Action recommended for next maintenance window.</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-[2rem] border border-white/10 bg-[#081d3c]/95 p-6 shadow-[0_28px_70px_rgba(0,0,0,0.22)]">
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-400">Automation</p>
-              <h2 className="mt-3 text-xl font-semibold text-white">Suggested actions</h2>
-              <div className="mt-6 space-y-4">
-                {[
-                  { label: 'Enable auto-indexing', value: 'Recommended' },
-                  { label: 'Refresh statistics', value: 'Suggested' },
-                  { label: 'Schedule backup', value: 'Due in 2h' },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-[1.75rem] border border-white/10 bg-[#071827]/95 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm text-slate-200">{item.label}</p>
-                      <span className="text-xs uppercase tracking-[0.24em] text-[#7faaff]">{item.value}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+            <p className="text-xs uppercase tracking-widest text-slate-400">Active Alerts</p>
+            <p className="text-3xl font-bold text-red-400 mt-3">5</p>
+            <p className="text-xs text-slate-400 mt-2">Requiring attention</p>
+          </div>
+          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+            <p className="text-xs uppercase tracking-widest text-slate-400">Avg Latency</p>
+            <p className="text-3xl font-bold text-white mt-3">45ms</p>
+            <p className="text-xs text-slate-400 mt-2">Query response</p>
+          </div>
+          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+            <p className="text-xs uppercase tracking-widest text-slate-400">System Health</p>
+            <p className="text-3xl font-bold text-green-400 mt-3">94%</p>
+            <p className="text-xs text-slate-400 mt-2">Overall score</p>
           </div>
         </div>
-      )}
+
+        {/* Live Feed */}
+        <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white">Live WebSocket Feed</h2>
+            <span className="text-xs px-3 py-1 rounded-full bg-green-500/20 text-green-300 font-semibold">Stream: Connected</span>
+          </div>
+
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {events.map(event => (
+              <div key={event.id} className={`p-3 rounded-lg border-l-4 ${
+                event.severity === 'critical' ? 'border-red-500 bg-red-500/10' :
+                event.severity === 'warning' ? 'border-yellow-500 bg-yellow-500/10' :
+                'border-blue-500 bg-blue-500/10'
+              }`}>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <p className="font-semibold text-white text-sm">{event.title}</p>
+                    <p className="text-xs text-slate-400 mt-1">{event.description}</p>
+                    {event.query_snippet && (
+                      <p className="text-xs text-slate-500 mt-2 font-mono">{event.query_snippet}</p>
+                    )}
+                  </div>
+                  <span className="text-xs text-slate-400 whitespace-nowrap ml-4">
+                    {new Date(event.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </AppShell>
   )
 }
