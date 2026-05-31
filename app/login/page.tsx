@@ -62,7 +62,7 @@ export default function LoginPage() {
         <div className="text-center mb-12">
           <div className="flex justify-center mb-4">
             <div className="w-12 h-12 bg-[#2f75ff] rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">📊</span>
+              <span className="text-white font-bold text-lg">DA</span>
             </div>
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">DB Autopilot</h1>
@@ -83,7 +83,7 @@ export default function LoginPage() {
               >
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center group-hover:bg-[#2f75ff]/20 transition">
-                    <span className="text-lg">👁️</span>
+                    <span className="text-lg">V</span>
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-1">DB Viewer</h3>
@@ -99,7 +99,7 @@ export default function LoginPage() {
               >
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center group-hover:bg-[#2f75ff]/20 transition">
-                    <span className="text-lg">⚙️</span>
+                    <span className="text-lg">O</span>
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-1">DB Operator</h3>
@@ -115,7 +115,7 @@ export default function LoginPage() {
               >
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-lg bg-[#2f75ff]/20 flex items-center justify-center group-hover:bg-[#2f75ff]/30 transition">
-                    <span className="text-lg">🛡️</span>
+                    <span className="text-lg">A</span>
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-1">DB Admin</h3>
@@ -127,7 +127,7 @@ export default function LoginPage() {
 
             <div className="mt-8 p-4 bg-[#0a1628]/50 border border-[#7faaff]/20 rounded-lg">
               <p className="text-xs text-[#7faaff] leading-relaxed">
-                🔒 <strong>Security Protocol Note:</strong> DB Autopilot strictly enforces Row-Level Security (RLS) and native PostgreSQL RBAC. Your selected role dictates data-reduction policies and VPC routing. All administrative actions are logged in the immutable audit trail.
+                <strong>Security Protocol Note:</strong> DB Autopilot strictly enforces Row-Level Security (RLS) and native PostgreSQL RBAC. Your selected role dictates data-reduction policies and VPC routing. All administrative actions are logged in the immutable audit trail.
               </p>
             </div>
           </div>
@@ -162,7 +162,7 @@ export default function LoginPage() {
                   SRE Username
                 </label>
                 <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0a1628]/50 border border-white/10 focus-within:border-[#2f75ff]/50 transition">
-                  <span className="text-slate-500">👤</span>
+                  <span className="text-slate-500">U</span>
                   <input
                     type="text"
                     placeholder="your-sre-id"
@@ -178,7 +178,7 @@ export default function LoginPage() {
                   Encrypted Token
                 </label>
                 <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0a1628]/50 border border-white/10 focus-within:border-[#2f75ff]/50 transition">
-                  <span className="text-slate-500">🔐</span>
+                  <span className="text-slate-500">P</span>
                   <input
                     type="password"
                     placeholder="••••••••••••"
@@ -195,7 +195,7 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full mt-6 bg-[#2f75ff] hover:bg-[#4b8cff] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-[1rem] transition shadow-lg shadow-[#2f75ff]/20"
             >
-              {loading ? 'Authenticating...' : 'Initiate Session →'}
+              {loading ? 'Authenticating...' : 'Initiate Session'}
             </button>
           </div>
         )}

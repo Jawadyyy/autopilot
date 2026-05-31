@@ -6,22 +6,22 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 const mainNavItems = [
-  { label: 'Dashboard', href: '/dashboard', icon: '📊' },
-  { label: 'Connections', href: '/connections', icon: '🔗' },
-  { label: 'Live Feed', href: '/live-health', icon: '🔴' },
-  { label: 'Query Diff', href: '/plan-diff', icon: '⚡' },
-  { label: 'Concurrency', href: '/locks', icon: '🔒' },
-  { label: 'Rules', href: '/autopilot', icon: '⚙️' },
-  { label: 'Schema', href: '/schema', icon: '📑' },
-  { label: 'Backup', href: '/backup', icon: '💾' },
-  { label: 'OLAP Analytics', href: '/olap', icon: '📈' },
-  { label: 'JSON Explorer', href: '/json-explorer', icon: '💾' },
-  { label: 'Reports', href: '/report', icon: '📋' },
+  { label: 'Dashboard', href: '/dashboard', icon: '' },
+  { label: 'Connections', href: '/connections', icon: '' },
+  { label: 'Live Feed', href: '/live-health', icon: '' },
+  { label: 'Query Diff', href: '/plan-diff', icon: '' },
+  { label: 'Concurrency', href: '/locks', icon: '' },
+  { label: 'Rules', href: '/autopilot', icon: '' },
+  { label: 'Schema', href: '/schema', icon: '' },
+  { label: 'Backup', href: '/backup', icon: '' },
+  { label: 'OLAP Analytics', href: '/olap', icon: '' },
+  { label: 'JSON Explorer', href: '/json-explorer', icon: '' },
+  { label: 'Reports', href: '/report', icon: '' },
 ]
 
 const systemNavItems = [
-  { label: 'Settings', href: '/settings', icon: '⚙️' },
-  { label: 'Support', href: '/support', icon: '❓' },
+  { label: 'Settings', href: '/settings', icon: '' },
+  { label: 'Support', href: '/support', icon: '' },
 ]
 
 export default function AppShell({ children }: { children: ReactNode }) {
@@ -48,12 +48,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-[#050507] text-white">
       <div className="flex h-screen">
         {/* Sidebar */}
-        <aside className="w-48 bg-[#0a0f1a] border-r border-white/10 flex flex-col">
+        <aside className="w-80 bg-[#0a0f1a] border-r border-white/10 flex flex-col">
           {/* Logo */}
           <div className="p-6 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-[#2f75ff] rounded-lg flex items-center justify-center text-sm font-bold">
-                📊
+              <div className="w-8 h-8 bg-[#2f75ff] rounded-lg flex items-center justify-center text-sm font-bold text-white">
+                DA
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-widest text-[#7faaff]">DB Autopilot</p>
@@ -129,7 +129,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <p className="text-xs text-slate-400 uppercase tracking-widest">Connected</p>
-                <p className="text-sm font-semibold text-green-400">● System Online</p>
+                <p className="text-sm font-semibold text-green-400">System Online</p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-[#2f75ff]/20 flex items-center justify-center text-[#2f75ff] font-semibold">
                 {userName?.charAt(0).toUpperCase() || 'A'}

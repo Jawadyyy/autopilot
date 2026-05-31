@@ -2,105 +2,122 @@
 
 import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
-import PageHeader from '../components/PageHeader'
+import { apiFetch } from '@/lib/api'
 
-interface WsEvent {
-  type: string
-  timestamp: string
-  payload: Record<string, any>
-}
+const FILTERS = ['all', 'critical', 'warning', 'info'] as const
 
-const initialMockEvents: WsEvent[] = [
-  {
-    type: 'High latency detected',
-    timestamp: new Date(Date.now() - 120000).toISOString(),
-    payload: { source: 'Orders DB', latency: '470ms', threshold: '320ms' },
-  },
-  {
-    type: 'Deadlock warning',
-    timestamp: new Date(Date.now() - 300000).toISOString(),
-    payload: { source: 'Inventory MS', session: '59', query: 'UPDATE stock' },
-  },
-  {
-    type: 'Backup window ready',
-    timestamp: new Date(Date.now() - 540000).toISOString(),
-    payload: { source: 'Analytics', nextRun: '02:00 UTC' },
-  },
-]
+type FilterType = (typeof FILTERS)[number]
 
 export default function LiveHealthPage() {
-  const [events, setEvents] = useState<WsEvent[]>(initialMockEvents)
-  const [status, setStatus] = useState('Connecting...')
+  const [events, setEvents] = useState<any[]>([])
+  const [filter, setFilter] = useState<FilterType>('all')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const token = window.localStorage.getItem('db-autopilot-token')
-    if (!token) {
-      setStatus('Login required to open live feed.')
-      return
-    }
-
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/ws?token=${token}`
-    const socket = new WebSocket(wsUrl)
-
-    socket.onopen = () => setStatus('Connected')
-    socket.onclose = () => setStatus('Disconnected')
-    socket.onerror = () => setStatus('Connection error')
-    socket.onmessage = (message) => {
+    async function loadEvents() {
       try {
-        const parsed = JSON.parse(message.data)
-        setEvents((current) => [{ type: parsed.type, timestamp: parsed.timestamp, payload: parsed.payload }, ...current].slice(0, 20))
-      } catch {
-        // ignore invalid messages
+        const data = await apiFetch('/api/health-events')
+        setEvents(data)
+      } catch (err) {
+        console.error('Failed to load health events', err)
+      } finally {
+        setLoading(false)
       }
     }
 
-    return () => socket.close()
+    loadEvents()
   }, [])
 
-  const statusClass =
-    status === 'Connected'
-      ? 'bg-emerald-500/10 text-emerald-200'
-      : status === 'Disconnected'
-      ? 'bg-red-500/10 text-red-200'
-      : status === 'Connection error'
-      ? 'bg-amber-500/10 text-amber-200'
-      : 'bg-slate-700/10 text-slate-300'
+  const filteredEvents = events.filter(e => filter === 'all' || e.severity === filter)
 
   return (
     <AppShell>
-      <PageHeader
-        title="Live Health Feed"
-        description="Watch detected issues flow in real time with severity highlights, database context, and one-click action prompts."
-      />
-
-      <div className="grid gap-6">
-        <div className="rounded-[2rem] border border-white/10 bg-[#101115]/95 p-6">
-          <p className="text-sm uppercase tracking-[0.24em] text-zinc-400">WebSocket status</p>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <span className={`rounded-full px-3 py-1 text-sm font-semibold uppercase tracking-[0.24em] ${statusClass}`}>
-              {status}
-            </span>
-            <span className="text-sm text-slate-400">Showing the latest {events.length} events</span>
-          </div>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-white">Live Health Feed</h1>
+          <p className="text-slate-400 mt-2">Monitoring {events.length} active instances across your infrastructure.</p>
         </div>
 
-        <div className="rounded-[2rem] border border-white/10 bg-[#15171d]/95 p-6">
-          <div className="grid gap-4">
-            {events.length === 0 ? (
-              <div className="rounded-3xl border border-white/10 bg-[#0c0d11]/80 p-8 text-center text-sm text-zinc-400">
-                Waiting for live events from connected databases.
-              </div>
-            ) : (
-              events.map((event, index) => (
-                <div key={`${event.timestamp}-${index}`} className="rounded-3xl border border-white/10 bg-[#0f1115]/90 p-5 shadow-sm shadow-black/20">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span className="text-sm font-semibold text-white">{event.type}</span>
-                    <span className="text-xs text-zinc-500">{new Date(event.timestamp).toLocaleTimeString()}</span>
+        <div className="flex gap-2">
+          {FILTERS.map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                filter === f
+                  ? 'bg-[#2f75ff] text-white'
+                  : 'bg-white/5 text-slate-400 hover:bg-white/10'
+              }`}
+            >
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-3">
+          {filteredEvents.map(event => (
+            <div key={event.id} className={`bg-[#0c1628] border-l-4 rounded-[1rem] p-4 ${
+              event.severity === 'critical' ? 'border-red-500 bg-red-500/5' :
+              event.severity === 'warning' ? 'border-yellow-500 bg-yellow-500/5' :
+              'border-blue-500 bg-blue-500/5'
+            }`}>
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-semibold uppercase ${
+                      event.severity === 'critical' ? 'text-red-400' :
+                      event.severity === 'warning' ? 'text-yellow-300' : 'text-blue-300'
+                    }`}>
+                      {event.severity}
+                    </span>
+                    <h3 className="text-white font-semibold">{event.title}</h3>
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                      event.severity === 'critical' ? 'bg-red-500/20 text-red-300' :
+                      event.severity === 'warning' ? 'bg-yellow-500/20 text-yellow-300' :
+                      'bg-blue-500/20 text-blue-300'
+                    }`}>
+                      {event.severity.toUpperCase()}
+                    </span>
                   </div>
-                  <pre className="mt-4 max-h-40 overflow-auto rounded-3xl bg-[#0b0c10] p-4 text-xs text-zinc-300">{JSON.stringify(event.payload, null, 2)}</pre>
+                  <p className="text-slate-400 text-sm mt-2">{event.description}</p>
+                  {event.query_snippet && (
+                    <p className="text-slate-500 text-xs font-mono mt-2 bg-black/20 p-2 rounded">
+                      {event.query_snippet}
+                    </p>
+                  )}
+                  {event.table_name && (
+                    <p className="text-slate-400 text-xs mt-2">
+                      <span className="font-semibold">Table:</span> {event.table_name}
+                    </p>
+                  )}
                 </div>
-              ))
-            )}
+                <div className="text-right ml-4">
+                  <p className="text-xs text-slate-400">
+                    {new Date(event.timestamp).toLocaleTimeString()}
+                  </p>
+                  <span className={`inline-block mt-2 px-2 py-1 rounded text-xs ${
+                    event.status === 'active' ? 'bg-green-500/20 text-green-300' : 'bg-slate-500/20 text-slate-300'
+                  }`}>
+                    {event.status === 'active' ? 'Active' : 'Resolved'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-6">
+          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+            <p className="text-slate-400 text-sm">Total Events (Last Hour)</p>
+            <p className="text-3xl font-bold text-white mt-2">{events.length}</p>
+          </div>
+          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+            <p className="text-slate-400 text-sm">Critical Alerts</p>
+            <p className="text-3xl font-bold text-red-400 mt-2">{events.filter(e => e.severity === 'critical').length}</p>
+          </div>
+          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+            <p className="text-slate-400 text-sm">Resolved</p>
+            <p className="text-3xl font-bold text-green-400 mt-2">{events.filter(e => e.status === 'resolved').length}</p>
           </div>
         </div>
       </div>

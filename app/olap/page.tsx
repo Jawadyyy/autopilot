@@ -1,54 +1,99 @@
-import AppShell from '../components/AppShell'
-import PageHeader from '../components/PageHeader'
+'use client'
 
-export default function OlapPage() {
+import { useState } from 'react'
+import AppShell from '../components/AppShell'
+
+export default function OLAPPage() {
   return (
     <AppShell>
-      <PageHeader
-        title="OLAP Incident Analytics"
-        description="Trend incidents over time, pivot by database, issue type, and hour using CUBE and ROLLUP style insights."
-      />
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-white">OLAP Incident Analytics</h1>
+          <p className="text-slate-400 mt-2">Visualizing long-term infrastructure health and incident correlation.</p>
+        </div>
 
-      <div className="grid min-w-0 gap-6">
-        <section className="min-w-0 rounded-[2rem] border border-white/10 bg-[#101115]/95 p-6 shadow-[0_24px_70px_rgba(0,0,0,0.23)]">
-          <div className="grid min-w-0 gap-6">
-            <div className="min-w-0 rounded-[1.75rem] border border-white/10 bg-[#0b0d12]/95 p-6">
-              <h2 className="text-lg font-semibold text-white">Incident heatmap</h2>
-              <p className="mt-3 text-sm text-zinc-400">Hours of day vs day of week, highlighting peak problem windows.</p>
-              <div className="mt-5 grid grid-cols-7 gap-2">
-                {Array.from({ length: 21 }).map((_, index) => (
-                  <div
-                    key={index}
-                    className={`h-12 rounded-2xl ${index % 5 === 0 ? 'bg-[#ff6f3d]' : 'bg-white/5'}`}
-                  />
-                ))}
+        <div className="flex gap-4 mb-4">
+          <select className="px-4 py-2 bg-[#0c1628] border border-white/10 rounded text-white">
+            <option>Last 180 Days</option>
+            <option>Last 90 Days</option>
+            <option>Last 30 Days</option>
+          </select>
+          <button className="px-4 py-2 rounded-lg bg-white/5 text-slate-400 hover:bg-white/10 transition">
+            ↓ Export
+          </button>
+        </div>
+
+        <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+          <h3 className="text-white font-semibold mb-4">Incident Volume vs. Fix Success</h3>
+          <div className="flex h-48 items-end gap-2 px-4 py-8 bg-black/20 rounded">
+            {[45, 38, 52, 48, 61, 55, 42].map((v, i) => (
+              <div key={i} className="flex-1 flex flex-col items-end">
+                <div className="w-full rounded-t bg-gradient-to-t from-[#2f75ff] to-[#7faaff]/30" style={{ height: `${v}%` }}></div>
+                <div className="w-full rounded-t bg-gradient-to-t from-green-500 to-green-500/30 mt-1" style={{ height: `${v * 0.8}%` }}></div>
+                <p className="text-xs text-slate-400 mt-2">{['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL'][i]}</p>
               </div>
+            ))}
+          </div>
+          <div className="flex gap-6 mt-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#2f75ff]"></div>
+              <span className="text-slate-400">Total Incidents</span>
             </div>
-            <div className="min-w-0 rounded-[1.75rem] border border-white/10 bg-[#0b0d12]/95 p-6">
-              <h2 className="text-lg font-semibold text-white">Pivot builder</h2>
-              <p className="mt-3 text-sm text-zinc-400">Create custom analytics slices with database, issue category, and time dimension.</p>
-              <div className="mt-5 overflow-x-auto rounded-3xl bg-[#111317]/95 p-4 text-sm text-zinc-300">
-                <div className="min-w-max space-y-3">
-                  <p><span className="font-semibold text-white">Rows:</span> database, issue type</p>
-                  <p><span className="font-semibold text-white">Columns:</span> hour</p>
-                  <p><span className="font-semibold text-white">Measures:</span> incident count, fix success rate</p>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+              <span className="text-slate-400">Fix Success Rate %</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+            <h3 className="text-white font-semibold mb-4">Incidents: Hour vs. Day</h3>
+            <div className="space-y-1">
+              {['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map((day, i) => (
+                <div key={day} className="flex items-center gap-2">
+                  <p className="text-sm text-slate-400 w-12">{day}</p>
+                  <div className="flex gap-1 flex-1">
+                    {Array(24).fill(0).map((_, h) => (
+                      <div key={h} className={`flex-1 h-8 rounded-sm ${
+                        Math.random() > 0.5 ? 'bg-[#2f75ff]/50' : 'bg-[#2f75ff]/20'
+                      }`}></div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-4">High Frequency: More intense color</p>
+          </div>
+
+          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
+            <h3 className="text-white font-semibold mb-4">Pivot Dimension Builder</h3>
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm text-slate-400 mb-2">Available Dimensions</p>
+                <div className="flex flex-wrap gap-2">
+                  {['Database', 'Region', 'Severity'].map(dim => (
+                    <span key={dim} className="text-xs bg-[#2f75ff]/20 text-[#8ab9ff] px-3 py-1 rounded cursor-pointer hover:bg-[#2f75ff]/30">
+                      {dim} ✕
+                    </span>
+                  ))}
                 </div>
               </div>
+              <div>
+                <p className="text-sm text-slate-400 mb-2">Rows</p>
+                <span className="text-xs bg-white/10 text-white px-3 py-1 rounded">
+                  Issue Type ✕
+                </span>
+              </div>
+              <div>
+                <p className="text-sm text-slate-400 mb-2">Columns</p>
+                <span className="text-xs bg-white/10 text-white px-3 py-1 rounded">
+                  Table Name ✕
+                </span>
+              </div>
             </div>
           </div>
-
-          <div className="mt-6 min-w-0 rounded-[1.75rem] border border-white/10 bg-[#111317]/95 p-5">
-            <p className="text-sm text-zinc-300">Generated SQL</p>
-            <div className="mt-3 overflow-x-auto rounded-3xl bg-[#0c0d11]/95 p-4 max-w-full">
-              <pre className="min-w-max whitespace-pre text-xs text-zinc-300">SELECT database_name, issue_type, hour,
-  COUNT(*) AS incident_count
-FROM fact_incidents
-GROUP BY CUBE (database_name, issue_type, hour)
-ORDER BY incident_count DESC;
-</pre>
-            </div>
-          </div>
-        </section>
+        </div>
       </div>
     </AppShell>
   )

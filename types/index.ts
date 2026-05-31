@@ -93,6 +93,7 @@ export interface QueryPlan {
 }
 
 export interface Lock {
+  id?:             string
   pid:             number
   query_snippet:   string
   duration:        string
@@ -126,7 +127,6 @@ export interface SchemaAnalysis {
   index_coverage:  number
   vacuum_health:   string
 }
-}
 
 export interface AutopilotAction {
   id:            string
@@ -139,21 +139,6 @@ export interface AutopilotAction {
   applied_by:    string | null
   applied_at:    string
   completed_at:  string | null
-}
-
-export interface QueryPlan {
-  id:             string
-  connection_id:  string
-  query_hash:     string
-  query_text:     string
-  plan_json:      Record<string, any>
-  plan_type:      'before_fix' | 'after_fix'
-  total_cost:     number | null
-  execution_ms:   number | null
-  has_seq_scan:   boolean
-  has_index_scan: boolean
-  related_issue:  string | null
-  captured_at:    string
 }
 
 export interface PerformanceMetric {
@@ -170,16 +155,20 @@ export interface PerformanceMetric {
   recorded_at:        string
 }
 
-export interface BackupRecord {
+export interface User {
   id:            string
-  connection_id: string
-  backup_path:   string | null
-  size_mb:       number | null
-  status:        BackupStatus
-  error_message: string | null
-  wal_lsn:       string | null
-  started_at:    string
-  completed_at:  string | null
+  username:      string
+  email:         string
+  role:          UserRole
+  is_active:     boolean
+  created_at:    string
+  last_login_at: string | null
+}
+
+export interface WsEvent {
+  type:      'new_issue' | 'issue_resolved' | 'action_applied' | 'metrics_update' | 'connection_status'
+  payload:   any
+  timestamp: string
 }
 
 export interface User {

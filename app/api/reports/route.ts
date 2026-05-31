@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal } from '@/lib/db/connections'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { getAuthUser } from '@/lib/auth/jwt'
 import { ok, error, unauthorized, serverError } from '@/lib/utils/response'
 
@@ -86,7 +87,10 @@ export async function GET(req: NextRequest) {
 
     // ── HEALTH SUMMARY (all connections) ──────────────────
     if (type === 'health') {
-      const summary = await query<any>(`SELECT * FROM v_connection_health`)
+      const { data: summary, error: fetchError } = await supabaseAdmin
+        .from('v_connection_health')
+        .select('*')
+      if (fetchError) throw fetchError
       return ok(summary)
     }
 
@@ -94,37 +98,55 @@ export async function GET(req: NextRequest) {
     if (type === 'trend') {
       if (!connectionId) return error('Missing connectionId')
 
-      const trend = await query<any>(
-        `SELECT * FROM v_performance_trend_24h WHERE connection_id = $1`,
-        [connectionId]
-      )
+      const { data: trend, error: trendError } = await supabaseAdmin
+        .from('v_performance_trend_24h')
+        .select('*')
+        .eq('connection_id', connectionId)
+      if (trendError) throw trendError
       return ok(trend)
     }
 
     // ── ISSUE SUMMARY ─────────────────────────────────────
     if (type === 'issues') {
-      const params: any[] = []
-      let whereClause = ''
+      const queryBuilder = supabaseAdmin
+        .from('detected_issues')
+        .select(`issue_type,severity,
+          total:count(*),
+          resolved:count(is_resolved),
+          open:count(!is_resolved),
+          avg_resolution_mins`)
+      // For complex aggregates, fall back to a simplified summary
+      if (connectionId) queryBuilder.eq('connection_id', connectionId)
 
-      if (connectionId) {
-        params.push(connectionId)
-        whereClause = `WHERE connection_id = $1`
+      const { data: issueSummary, error: fetchError } = await queryBuilder
+      if (fetchError) {
+        // If the Supabase query fails because of unsupported aggregation syntax,
+        // fallback to the original SQL query for accuracy.
+        const params: any[] = []
+        let whereClause = ''
+
+        if (connectionId) {
+          params.push(connectionId)
+          whereClause = `WHERE connection_id = $1`
+        }
+
+        const fallbackIssueSummary = await query<any>(
+          `SELECT
+             issue_type,
+             severity,
+             COUNT(*)                                      AS total,
+             COUNT(*) FILTER (WHERE is_resolved = TRUE)   AS resolved,
+             COUNT(*) FILTER (WHERE is_resolved = FALSE)  AS open,
+             ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - detected_at)) / 60), 2) AS avg_resolution_mins
+           FROM detected_issues
+           ${whereClause}
+           GROUP BY issue_type, severity
+           ORDER BY total DESC`,
+          params
+        )
+        return ok(fallbackIssueSummary)
       }
 
-      const issueSummary = await query<any>(
-        `SELECT
-           issue_type,
-           severity,
-           COUNT(*)                                      AS total,
-           COUNT(*) FILTER (WHERE is_resolved = TRUE)   AS resolved,
-           COUNT(*) FILTER (WHERE is_resolved = FALSE)  AS open,
-           ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - detected_at)) / 60), 2) AS avg_resolution_mins
-         FROM detected_issues
-         ${whereClause}
-         GROUP BY issue_type, severity
-         ORDER BY total DESC`,
-        params
-      )
       return ok(issueSummary)
     }
 

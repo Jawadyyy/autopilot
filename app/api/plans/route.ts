@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal } from '@/lib/db/connections'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { getAuthUser } from '@/lib/auth/jwt'
 import { ok, created, error, unauthorized, serverError } from '@/lib/utils/response'
 import crypto from 'crypto'
@@ -66,42 +67,40 @@ export async function GET(req: NextRequest) {
 
     // Get before/after plans for a specific issue (diff viewer)
     if (issueId) {
-      const plans = await query<any>(
-        `SELECT * FROM query_plans
-         WHERE related_issue = $1
-         ORDER BY captured_at ASC`,
-        [issueId]
-      )
+      const { data: plans, error: fetchError } = await supabaseAdmin
+        .from('query_plans')
+        .select('*')
+        .eq('related_issue', issueId)
+        .order('captured_at', { ascending: true })
+      if (fetchError) throw fetchError
       return ok(plans)
     }
 
-    // Get plans with seq scans (JSON explorer)
     if (req.nextUrl.searchParams.get('hasSeqScan') === 'true') {
-      const plans = await query<any>(
-        `SELECT id, connection_id, query_text, plan_type,
-                total_cost, execution_ms, has_seq_scan,
-                has_index_scan, captured_at
-         FROM query_plans
-         WHERE has_seq_scan = TRUE
-           AND ($1::uuid IS NULL OR connection_id = $1::uuid)
-         ORDER BY execution_ms DESC NULLS LAST
-         LIMIT 50`,
-        [connectionId ?? null]
-      )
+      const queryBuilder = supabaseAdmin
+        .from('query_plans')
+        .select('id,connection_id,query_text,plan_type,total_cost,execution_ms,has_seq_scan,has_index_scan,captured_at')
+        .eq('has_seq_scan', true)
+        .order('execution_ms', { ascending: false })
+        .limit(50)
+
+      if (connectionId) queryBuilder.eq('connection_id', connectionId)
+
+      const { data: plans, error: fetchError } = await queryBuilder
+      if (fetchError) throw fetchError
       return ok(plans)
     }
 
-    // Get all plans for a connection
-    const plans = await query<any>(
-      `SELECT id, connection_id, query_text, plan_type,
-              total_cost, execution_ms, has_seq_scan,
-              has_index_scan, captured_at
-       FROM query_plans
-       WHERE ($1::uuid IS NULL OR connection_id = $1::uuid)
-       ORDER BY captured_at DESC
-       LIMIT 100`,
-      [connectionId ?? null]
-    )
+    const queryBuilder = supabaseAdmin
+      .from('query_plans')
+      .select('id,connection_id,query_text,plan_type,total_cost,execution_ms,has_seq_scan,has_index_scan,captured_at')
+      .order('captured_at', { ascending: false })
+      .limit(100)
+
+    if (connectionId) queryBuilder.eq('connection_id', connectionId)
+
+    const { data: plans, error: fetchError } = await queryBuilder
+    if (fetchError) throw fetchError
     return ok(plans)
   } catch (err) {
     return serverError(err)
@@ -130,28 +129,25 @@ export async function POST(req: NextRequest) {
     const queryHash = crypto.createHash('md5').update(queryText.trim().toLowerCase()).digest('hex')
     const parsed2   = parsePlan(planJson)
 
-    const saved = await queryOne<any>(
-      `INSERT INTO query_plans
-         (connection_id, query_hash, query_text, plan_json, plan_type,
-          total_cost, execution_ms, rows_examined,
-          has_seq_scan, has_index_scan, related_issue)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       RETURNING *`,
-      [
-        connectionId,
-        queryHash,
-        queryText,
-        JSON.stringify(planJson),
-        planType,
-        parsed2.totalCost,
-        parsed2.executionMs,
-        parsed2.rowsExamined,
-        parsed2.hasSeqScan,
-        parsed2.hasIndexScan,
-        issueId ?? null,
-      ]
-    )
+    const { data: saved, error: insertError } = await supabaseAdmin
+      .from('query_plans')
+      .insert({
+        connection_id: connectionId,
+        query_hash: queryHash,
+        query_text: queryText,
+        plan_json: JSON.stringify(planJson),
+        plan_type: planType,
+        total_cost: parsed2.totalCost,
+        execution_ms: parsed2.executionMs,
+        rows_examined: parsed2.rowsExamined,
+        has_seq_scan: parsed2.hasSeqScan,
+        has_index_scan: parsed2.hasIndexScan,
+        related_issue: issueId ?? null,
+      })
+      .select('*')
+      .single()
 
+    if (insertError) throw insertError
     return created({ ...saved, parsed: parsed2 })
   } catch (err) {
     return serverError(err)
