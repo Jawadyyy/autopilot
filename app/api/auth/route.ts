@@ -1,109 +1,69 @@
-import { NextRequest } from 'next/server'
-import bcrypt from 'bcryptjs'
-import { query, queryOne } from '@/lib/db/pool'
-import { signToken, getAuthUser } from '@/lib/auth/jwt'
-import { ok, created, error, unauthorized, serverError } from '@/lib/utils/response'
-import { z } from 'zod'
+import { NextRequest, NextResponse } from 'next/server'
+import { createHmac } from 'crypto'
 
-const LoginSchema = z.object({
-  username: z.string().min(1),
-  password: z.string().min(1),
-})
+// Mock users for demo
+const MOCK_USERS = [
+  { id: 'user-1', identifier: 'sre-team', token: 'demo-token-123', role: 'db_admin', name: 'Admin User' },
+  { id: 'user-2', identifier: 'db-operator', token: 'operator-token', role: 'db_operator', name: 'Operator' },
+  { id: 'user-3', identifier: 'viewer', token: 'viewer-token', role: 'db_viewer', name: 'Viewer' },
+]
 
-const RegisterSchema = z.object({
-  username: z.string().min(3).max(100),
-  email:    z.string().email(),
-  password: z.string().min(6),
-  role:     z.enum(['db_viewer', 'db_operator', 'db_admin']).default('db_viewer'),
-})
-
-// POST /api/auth?action=login  or  ?action=register
-export async function POST(req: NextRequest) {
-  try {
-    const action = req.nextUrl.searchParams.get('action')
-    const body   = await req.json()
-
-    // ── LOGIN ─────────────────────────────────────────────
-    if (action === 'login') {
-      const parsed = LoginSchema.safeParse(body)
-      if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
-
-      const { username, password } = parsed.data
-
-      const user = await queryOne<any>(
-        'SELECT * FROM users WHERE username = $1 AND is_active = TRUE',
-        [username]
-      )
-      if (!user) return unauthorized('Invalid username or password')
-
-      const valid = await bcrypt.compare(password, user.password_hash)
-      if (!valid) return unauthorized('Invalid username or password')
-
-      // Update last login
-      await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id])
-
-      const token = await signToken({
-        userId:   user.id,
-        username: user.username,
-        role:     user.role,
-      })
-
-      return ok({ token, user: { id: user.id, username: user.username, email: user.email, role: user.role } })
-    }
-
-    // ── REGISTER ──────────────────────────────────────────
-    if (action === 'register') {
-      const parsed = RegisterSchema.safeParse(body)
-      if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
-
-      const { username, email, password, role } = parsed.data
-
-      // Check duplicate
-      const existing = await queryOne(
-        'SELECT id FROM users WHERE username = $1 OR email = $2',
-        [username, email]
-      )
-      if (existing) return error('Username or email already exists', 409)
-
-      const password_hash = await bcrypt.hash(password, 12)
-
-      const newUser = await queryOne<any>(
-        `INSERT INTO users (username, email, password_hash, role)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, username, email, role, created_at`,
-        [username, email, password_hash, role]
-      )
-
-      const token = await signToken({
-        userId:   newUser.id,
-        username: newUser.username,
-        role:     newUser.role,
-      })
-
-      return created({ token, user: newUser })
-    }
-
-    return error('Invalid action. Use ?action=login or ?action=register')
-
-  } catch (err) {
-    return serverError(err)
-  }
+function generateJWT(userId: string, role: string): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64')
+  const payload = Buffer.from(JSON.stringify({
+    userId,
+    role,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 86400 // 24 hours
+  })).toString('base64')
+  
+  const signature = createHmac('sha256', process.env.JWT_SECRET || 'your-secret-key')
+    .update(`${header}.${payload}`)
+    .digest('base64')
+  
+  return `${header}.${payload}.${signature}`
 }
 
-// GET /api/auth — returns current logged in user info
-export async function GET(req: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const authUser = await getAuthUser(req)
-    if (!authUser) return unauthorized()
+    const body = await req.json()
+    const { identifier, token, role } = body
 
-    const user = await queryOne<any>(
-      'SELECT id, username, email, role, created_at, last_login_at FROM users WHERE id = $1',
-      [authUser.userId]
+    if (!identifier || !token || !role) {
+      return NextResponse.json(
+        { message: 'Missing identifier, token, or role' },
+        { status: 400 }
+      )
+    }
+
+    // Find user in mock data
+    const user = MOCK_USERS.find(
+      u => u.identifier === identifier && u.token === token && u.role === role
     )
-    if (!user) return unauthorized()
 
-    return ok(user)
+    if (!user) {
+      return NextResponse.json(
+        { message: 'Invalid credentials' },
+        { status: 401 }
+      )
+    }
+
+    const jwtToken = generateJWT(user.id, user.role)
+
+    return NextResponse.json({
+      token: jwtToken,
+      user: {
+        id: user.id,
+        identifier: user.identifier,
+        role: user.role,
+        name: user.name
+      }
+    })
   } catch (err) {
-    return serverError(err)
+    console.error('Auth error:', err)
+    return NextResponse.json(
+      { message: 'Authentication failed' },
+      { status: 500 }
+    )
   }
 }

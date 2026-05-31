@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { getAuthUser, hasRole } from '@/lib/auth/jwt'
 import { ok, created, error, unauthorized, forbidden, notFound, serverError } from '@/lib/utils/response'
 import { exec } from 'child_process'
@@ -17,19 +18,28 @@ export async function GET(req: NextRequest) {
 
     const connectionId = req.nextUrl.searchParams.get('connectionId')
 
-    const backups = await query<any>(
-      `SELECT
-         bh.*,
-         mc.name AS db_name
-       FROM backup_history bh
-       JOIN monitored_connections mc ON mc.id = bh.connection_id
-       WHERE ($1::uuid IS NULL OR bh.connection_id = $1::uuid)
-       ORDER BY bh.started_at DESC
-       LIMIT 50`,
-      [connectionId ?? null]
-    )
+    const supabaseAdmin = getSupabaseAdmin()
+    if (!supabaseAdmin) return serverError('Database not available')
 
-    return ok(backups)
+    const queryBuilder = supabaseAdmin
+      .from('backup_history')
+      .select('*, monitored_connections!inner(name)')
+      .order('started_at', { ascending: false })
+      .limit(50)
+
+    if (connectionId) {
+      queryBuilder.eq('connection_id', connectionId)
+    }
+
+    const { data: backups, error: fetchError } = await queryBuilder
+    if (fetchError) throw fetchError
+
+    const formatted = backups.map((item: any) => ({
+      ...item,
+      db_name: item.monitored_connections?.name,
+    }))
+
+    return ok(formatted)
   } catch (err) {
     return serverError(err)
   }
@@ -49,9 +59,12 @@ export async function POST(req: NextRequest) {
     if (!connectionId) return error('Missing connectionId')
 
     // Get connection details
-    const conn = await queryOne<any>(
-      `SELECT * FROM monitored_connections WHERE id = $1`, [connectionId]
-    )
+    const { data: conn, error: connError } = await supabaseAdmin
+      .from('monitored_connections')
+      .select('*')
+      .eq('id', connectionId)
+      .single()
+    if (connError) throw connError
     if (!conn) return notFound('Connection')
     if (conn.db_type !== 'postgresql') return error('Backup only supported for PostgreSQL')
 
@@ -66,12 +79,12 @@ export async function POST(req: NextRequest) {
       if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
 
       // Create backup record as running
-      const backupRecord = await queryOne<any>(
-        `INSERT INTO backup_history (connection_id, backup_path, status)
-         VALUES ($1, $2, 'running')
-         RETURNING *`,
-        [connectionId, backupPath]
-      )
+      const { data: backupRecord, error: insertError } = await supabaseAdmin
+        .from('backup_history')
+        .insert({ connection_id: connectionId, backup_path: backupPath, status: 'running' })
+        .select('*')
+        .single()
+      if (insertError) throw insertError
 
       // Run pg_dump asynchronously
       const pgDumpCmd = [
@@ -96,13 +109,17 @@ export async function POST(req: NextRequest) {
             `SELECT pg_current_wal_lsn()::text AS lsn`
           ).catch(() => null)
 
-          await query(
-            `UPDATE backup_history
-             SET status = 'success', completed_at = NOW(),
-                 size_mb = $1, wal_lsn = $2
-             WHERE id = $3`,
-            [sizeMb.toFixed(2), lsnResult?.lsn ?? null, backupRecord.id]
-          )
+          const { error: updateError } = await supabaseAdmin
+            .from('backup_history')
+            .update({
+              status: 'success',
+              completed_at: new Date().toISOString(),
+              size_mb: sizeMb.toFixed(2),
+              wal_lsn: lsnResult?.lsn ?? null,
+            })
+            .eq('id', backupRecord.id)
+
+          if (updateError) throw updateError
         })
         .catch(async (err) => {
           await query(
@@ -125,10 +142,13 @@ export async function POST(req: NextRequest) {
       const { backupId } = body
       if (!backupId) return error('Missing backupId')
 
-      const backup = await queryOne<any>(
-        `SELECT * FROM backup_history WHERE id = $1 AND status = 'success'`,
-        [backupId]
-      )
+      const { data: backup, error: backupFetchError } = await supabaseAdmin
+        .from('backup_history')
+        .select('*')
+        .eq('id', backupId)
+        .eq('status', 'success')
+        .single()
+      if (backupFetchError) throw backupFetchError
       if (!backup)            return notFound('Backup')
       if (!backup.backup_path) return error('Backup file path not found')
       if (!fs.existsSync(backup.backup_path)) return error('Backup file not found on disk')
@@ -173,17 +193,23 @@ export async function DELETE(req: NextRequest) {
     const id = req.nextUrl.searchParams.get('id')
     if (!id) return error('Missing id')
 
-    const backup = await queryOne<any>(
-      'SELECT * FROM backup_history WHERE id = $1', [id]
-    )
+    const { data: backup, error: backupFetchError } = await supabaseAdmin
+      .from('backup_history')
+      .select('*')
+      .eq('id', id)
+      .single()
+    if (backupFetchError) throw backupFetchError
     if (!backup) return notFound('Backup')
 
-    // Delete file from disk if exists
     if (backup.backup_path && fs.existsSync(backup.backup_path)) {
       fs.unlinkSync(backup.backup_path)
     }
 
-    await query('DELETE FROM backup_history WHERE id = $1', [id])
+    const { error: deleteError } = await supabaseAdmin
+      .from('backup_history')
+      .delete()
+      .eq('id', id)
+    if (deleteError) throw deleteError
     return ok({ message: 'Backup deleted' })
   } catch (err) {
     return serverError(err)

@@ -1,24 +1,37 @@
 export type DbType       = 'postgresql' | 'mssql'
-export type ConnStatus   = 'active' | 'error' | 'paused' | 'untested'
+export type ConnStatus   = 'connected' | 'disconnected' | 'error' | 'paused'
 export type IssueType    = 'slow_query' | 'missing_index' | 'deadlock' | 'table_bloat' | 'idle_connections' | 'lock_contention' | 'long_transaction' | 'unused_index'
-export type Severity     = 'low' | 'medium' | 'high' | 'critical'
+export type Severity     = 'info' | 'warning' | 'critical'
 export type FixMode      = 'auto' | 'suggest' | 'off'
 export type ActionStatus = 'pending' | 'applied' | 'failed' | 'rolled_back' | 'dismissed'
 export type BackupStatus = 'running' | 'success' | 'failed'
 export type UserRole     = 'db_viewer' | 'db_operator' | 'db_admin'
+export type LockState    = 'active' | 'blocker' | 'waiting' | 'idle'
+
+export interface Cluster {
+  id:              string
+  name:            string
+  region:          string
+  status:          'healthy' | 'critical' | 'warning'
+  active_sessions: number
+  uptime:          string
+  query_latency:   string
+  connections:     string[]
+}
 
 export interface MonitoredConnection {
   id:              string
   name:            string
+  type:            DbType
   host:            string
   port:            number
   db_name:         string
   username:        string
-  db_type:         DbType
   status:          ConnStatus
-  last_checked_at: string | null
-  last_error:      string | null
+  last_checked_at: string
+  version:         string
   created_at:      string
+  cluster_id:      string
 }
 
 export interface DetectedIssue {
@@ -35,6 +48,7 @@ export interface DetectedIssue {
   is_resolved:    boolean
   resolved_at:    string | null
   detected_at:    string
+  cluster_id:     string
 }
 
 export interface AutopilotRule {
@@ -48,6 +62,70 @@ export interface AutopilotRule {
   is_active:           boolean
   success_count:       number
   fail_count:          number
+  scope:               string
+  status:              'active' | 'inactive'
+}
+
+export interface HealthEvent {
+  id:              string
+  timestamp:       string
+  cluster_id:      string
+  severity:        Severity
+  type:            string
+  title:           string
+  description:     string
+  query_snippet?:  string
+  table_name?:     string
+  metric_value?:   number
+  status:          'active' | 'resolved'
+}
+
+export interface QueryPlan {
+  id:              string
+  query_hash:      string
+  query_text:      string
+  plan_type:       'current' | 'optimized'
+  cost:            number
+  execution_time:  number
+  rows:            number
+  plan_json:       Record<string, any>
+  created_at:      string
+}
+
+export interface Lock {
+  id?:             string
+  pid:             number
+  query_snippet:   string
+  duration:        string
+  state:           LockState
+  duration_ms:     number
+  blocker_pid?:    number
+}
+
+export interface BackupRecord {
+  id:              string
+  timestamp:       string
+  type:            string
+  size:            string
+  duration:        string
+  status:          BackupStatus
+  storage:         string
+}
+
+export interface Table {
+  name:            string
+  row_count:       number
+  size_mb:         number
+  bloat_ratio:     number
+  dead_tuples:     number
+  last_vacuum:     string
+}
+
+export interface SchemaAnalysis {
+  total_bloat:     string
+  dead_tuples:     number
+  index_coverage:  number
+  vacuum_health:   string
 }
 
 export interface AutopilotAction {
@@ -61,21 +139,6 @@ export interface AutopilotAction {
   applied_by:    string | null
   applied_at:    string
   completed_at:  string | null
-}
-
-export interface QueryPlan {
-  id:             string
-  connection_id:  string
-  query_hash:     string
-  query_text:     string
-  plan_json:      Record<string, any>
-  plan_type:      'before_fix' | 'after_fix'
-  total_cost:     number | null
-  execution_ms:   number | null
-  has_seq_scan:   boolean
-  has_index_scan: boolean
-  related_issue:  string | null
-  captured_at:    string
 }
 
 export interface PerformanceMetric {
@@ -92,16 +155,20 @@ export interface PerformanceMetric {
   recorded_at:        string
 }
 
-export interface BackupRecord {
+export interface User {
   id:            string
-  connection_id: string
-  backup_path:   string | null
-  size_mb:       number | null
-  status:        BackupStatus
-  error_message: string | null
-  wal_lsn:       string | null
-  started_at:    string
-  completed_at:  string | null
+  username:      string
+  email:         string
+  role:          UserRole
+  is_active:     boolean
+  created_at:    string
+  last_login_at: string | null
+}
+
+export interface WsEvent {
+  type:      'new_issue' | 'issue_resolved' | 'action_applied' | 'metrics_update' | 'connection_status'
+  payload:   any
+  timestamp: string
 }
 
 export interface User {

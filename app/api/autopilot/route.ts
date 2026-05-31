@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
-import { query, queryOne, withTransaction } from '@/lib/db/pool'
+import { query } from '@/lib/db/pool'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { getAuthUser, hasRole } from '@/lib/auth/jwt'
 import { ok, created, error, unauthorized, forbidden, notFound, serverError } from '@/lib/utils/response'
 import { z } from 'zod'
@@ -18,23 +19,33 @@ export async function GET(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-
+    const supabaseAdmin = getSupabaseAdmin()
+    if (!supabaseAdmin) return serverError('Database not available')
     const type = req.nextUrl.searchParams.get('type') || 'rules'
 
     if (type === 'rules') {
-      const rules = await query(`SELECT * FROM autopilot_rules ORDER BY created_at DESC`)
+      const { data: rules, error: rulesError } = await supabaseAdmin
+        .from('autopilot_rules')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (rulesError) throw rulesError
       return ok(rules)
     }
 
     if (type === 'actions') {
-      const actions = await query(
-        `SELECT * FROM v_action_log LIMIT 100`
-      )
+      const { data: actions, error: actionsError } = await supabaseAdmin
+        .from('v_action_log')
+        .select('*')
+        .limit(100)
+      if (actionsError) throw actionsError
       return ok(actions)
     }
 
     if (type === 'effectiveness') {
-      const data = await query(`SELECT * FROM v_rule_effectiveness`)
+      const { data, error: effError } = await supabaseAdmin
+        .from('v_rule_effectiveness')
+        .select('*')
+      if (effError) throw effError
       return ok(data)
     }
 
@@ -60,20 +71,19 @@ export async function POST(req: NextRequest) {
       const parsed = RuleSchema.safeParse(body)
       if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
 
-      const rule = await queryOne<any>(
-        `INSERT INTO autopilot_rules
-           (name, issue_type, trigger_condition, action_sql_template, action_description, mode)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         RETURNING *`,
-        [
-          parsed.data.name,
-          parsed.data.issue_type,
-          parsed.data.trigger_condition,
-          parsed.data.action_sql_template ?? null,
-          parsed.data.action_description,
-          parsed.data.mode,
-        ]
-      )
+      const { data: rule, error: insertError } = await supabaseAdmin
+        .from('autopilot_rules')
+        .insert({
+          name: parsed.data.name,
+          issue_type: parsed.data.issue_type,
+          trigger_condition: parsed.data.trigger_condition,
+          action_sql_template: parsed.data.action_sql_template ?? null,
+          action_description: parsed.data.action_description,
+          mode: parsed.data.mode,
+        })
+        .select('*')
+        .single()
+      if (insertError) throw insertError
       return created(rule)
     }
 
@@ -125,15 +135,17 @@ export async function PATCH(req: NextRequest) {
 
     const { mode, is_active } = await req.json()
 
-    const updated = await queryOne<any>(
-      `UPDATE autopilot_rules
-       SET
-         mode      = COALESCE($1, mode),
-         is_active = COALESCE($2, is_active)
-       WHERE id = $3
-       RETURNING *`,
-      [mode ?? null, is_active ?? null, id]
-    )
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from('autopilot_rules')
+      .update({
+        mode: mode ?? undefined,
+        is_active: is_active ?? undefined,
+      })
+      .eq('id', id)
+      .select('*')
+      .single()
+
+    if (updateError) throw updateError
     if (!updated) return notFound('Rule')
 
     return ok(updated)
@@ -152,9 +164,14 @@ export async function DELETE(req: NextRequest) {
     const id = req.nextUrl.searchParams.get('id')
     if (!id) return error('Missing rule id')
 
-    const deleted = await queryOne(
-      'DELETE FROM autopilot_rules WHERE id = $1 RETURNING id', [id]
-    )
+    const { data: deleted, error: deleteError } = await supabaseAdmin
+      .from('autopilot_rules')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .single()
+
+    if (deleteError) throw deleteError
     if (!deleted) return notFound('Rule')
 
     return ok({ message: 'Rule deleted' })
