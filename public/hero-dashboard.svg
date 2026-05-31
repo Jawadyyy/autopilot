@@ -1,0 +1,72 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#05080f" />
+      <stop offset="100%" stop-color="#081627" />
+    </linearGradient>
+    <linearGradient id="gridGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#16305d" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#0d1b33" stop-opacity="0.2" />
+    </linearGradient>
+    <linearGradient id="accentLine" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f6b25a" />
+      <stop offset="30%" stop-color="#ffb75d" />
+      <stop offset="60%" stop-color="#f6b25a" />
+      <stop offset="100%" stop-color="#f6b25a" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="800" rx="48" fill="url(#bgGradient)" />
+
+  <g opacity="0.25">
+    <path d="M0 120H1200" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M0 240H1200" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M0 360H1200" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M0 480H1200" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M0 600H1200" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M0 720H1200" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M120 0V800" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M240 0V800" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M360 0V800" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M480 0V800" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M600 0V800" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M720 0V800" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M840 0V800" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M960 0V800" stroke="#4e6ba2" stroke-width="1" />
+    <path d="M1080 0V800" stroke="#4e6ba2" stroke-width="1" />
+  </g>
+
+  <path d="M220 210L420 170L520 250L690 205L760 270L900 240" stroke="url(#accentLine)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M220 210V270" stroke="#f6b25a" stroke-width="3" stroke-linecap="round" />
+  <path d="M420 170V230" stroke="#f6b25a" stroke-width="3" stroke-linecap="round" />
+  <path d="M520 250V305" stroke="#f6b25a" stroke-width="3" stroke-linecap="round" />
+  <path d="M760 270V330" stroke="#f6b25a" stroke-width="3" stroke-linecap="round" />
+  <path d="M900 240V300" stroke="#f6b25a" stroke-width="3" stroke-linecap="round" />
+
+  <circle cx="220" cy="210" r="8" fill="#f6b25a" />
+  <circle cx="420" cy="170" r="8" fill="#f6b25a" />
+  <circle cx="520" cy="250" r="8" fill="#f6b25a" />
+  <circle cx="690" cy="205" r="8" fill="#f6b25a" />
+  <circle cx="760" cy="270" r="8" fill="#f6b25a" />
+  <circle cx="900" cy="240" r="8" fill="#f6b25a" />
+
+  <rect x="72" y="560" width="1036" height="180" rx="28" fill="#071728" opacity="0.9" />
+  <rect x="92" y="580" width="980" height="140" rx="24" fill="#0d1b34" />
+  <rect x="112" y="600" width="320" height="80" rx="20" fill="#11224b" />
+  <rect x="112" y="700" width="600" height="16" rx="8" fill="#1b2d5a" />
+  <rect x="112" y="724" width="540" height="12" rx="6" fill="#17315d" />
+
+  <rect x="180" y="612" width="120" height="35" rx="12" fill="#0f2f62" />
+  <text x="192" y="635" fill="#8bc5ff" font-family="Inter, sans-serif" font-size="24" font-weight="700">GLOBAL THROUGHPUT</text>
+  <text x="850" y="630" fill="#ffffff" font-family="Inter, sans-serif" font-size="36" font-weight="700">42.5k req/s</text>
+
+  <rect x="692" y="80" width="388" height="188" rx="24" fill="#071727" opacity="0.95" />
+  <rect x="708" y="102" width="348" height="16" rx="8" fill="#2658b0" />
+  <rect x="708" y="130" width="300" height="12" rx="6" fill="#1c2b4d" />
+  <rect x="708" y="154" width="240" height="12" rx="6" fill="#1c2b4d" />
+  <rect x="708" y="178" width="180" height="12" rx="6" fill="#1c2b4d" />
+
+  <circle cx="180" cy="138" r="6" fill="#5a85ff" />
+  <circle cx="204" cy="138" r="6" fill="#2f75ff" />
+  <circle cx="228" cy="138" r="6" fill="#4a90ff" />
+</svg>

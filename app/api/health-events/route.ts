@@ -9,6 +9,9 @@ export async function GET(req: NextRequest) {
     if (!authUser) return unauthorized()
 
     const severity = req.nextUrl.searchParams.get('severity')
+    const supabaseAdmin = getSupabaseAdmin()
+    if (!supabaseAdmin) return serverError('Database not available')
+
     const query = supabaseAdmin
       .from('detected_issues')
       .select('id,detected_at,severity,title,description,affected_table,affected_query,is_resolved')

@@ -14,11 +14,11 @@ export async function GET(req: NextRequest) {
     const [{ data: connections, error: connError }, { data: events, error: eventError }] = await Promise.all([
       supabaseAdmin
         .from('monitored_connections')
-        .select('id,name,host,db_name,db_type,status,last_checked_at,cluster_id')
+        .select('id,name,host,db_name,db_type,status,last_checked_at')
         .order('created_at', { ascending: false }),
       supabaseAdmin
         .from('detected_issues')
-        .select('id,detected_at:detected_at,timestamp:detected_at,cluster_id,severity,title,description,affected_table,affected_query,issue_type,is_resolved')
+        .select('id,detected_at:detected_at,timestamp:detected_at,severity,title,description,affected_table,affected_query,issue_type,is_resolved')
         .order('detected_at', { ascending: false })
         .limit(8),
     ])
@@ -30,10 +30,10 @@ export async function GET(req: NextRequest) {
     const totalDatabases = connections?.length ?? 0
     const totalAlerts = events?.filter((item: any) => !item.is_resolved).length ?? 0
     const clusters = Array.from(
-      new Map((connections ?? []).map((connection: any) => [connection.cluster_id, connection]))
+      new Map((connections ?? []).map((connection: any) => [connection.id, connection]))
     ).map((row: any) => ({
-      id: row.cluster_id,
-      name: row.cluster_id,
+      id: row.id,
+      name: row.name || row.db_name || `cluster-${row.id}`,
       region: 'us-east-1',
       status: row.status === 'active' ? 'healthy' : 'warning',
       active_sessions: Math.round(Math.random() * 400 + 20),

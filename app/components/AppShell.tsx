@@ -19,10 +19,7 @@ const mainNavItems = [
   { label: 'Reports', href: '/report', icon: '' },
 ]
 
-const systemNavItems = [
-  { label: 'Settings', href: '/settings', icon: '' },
-  { label: 'Support', href: '/support', icon: '' },
-]
+const systemNavItems: Array<{ label: string; href: string; icon: string }> = []
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()

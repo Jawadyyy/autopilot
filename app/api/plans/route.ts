@@ -65,6 +65,9 @@ export async function GET(req: NextRequest) {
     const issueId      = req.nextUrl.searchParams.get('issueId')
     const queryHash    = req.nextUrl.searchParams.get('queryHash')
 
+    const supabaseAdmin = getSupabaseAdmin()
+    if (!supabaseAdmin) return serverError('Database not available')
+
     // Get before/after plans for a specific issue (diff viewer)
     if (issueId) {
       const { data: plans, error: fetchError } = await supabaseAdmin
