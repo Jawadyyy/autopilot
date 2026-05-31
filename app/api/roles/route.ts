@@ -20,6 +20,25 @@ const CreateRoleSchema = z.object({
   password:     z.string().optional(),
 })
 
+// Postgres identifiers can't be bound as query parameters, so DDL built from
+// user input must be validated as a strict identifier to prevent SQL injection.
+const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/
+
+function assertIdent(value: string, label: string): string {
+  if (!IDENT.test(value)) {
+    throw new Error(`Invalid ${label}: must be a valid identifier`)
+  }
+  return value
+}
+
+// Allow optionally schema-qualified object names (e.g. "public.orders").
+function assertQualifiedName(value: string, label: string): string {
+  const parts = value.split('.')
+  if (parts.length > 2) throw new Error(`Invalid ${label}`)
+  const quoted = parts.map((p) => `"${assertIdent(p, label)}"`)
+  return quoted.join('.')
+}
+
 // GET /api/roles?connectionId=xxx&type=roles|privileges|rls
 export async function GET(req: NextRequest) {
   try {
@@ -105,13 +124,20 @@ export async function POST(req: NextRequest) {
       if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
 
       const { connectionId, roleName, canLogin, password } = parsed.data
+      const safeRole = assertIdent(roleName, 'roleName')
 
-      let sql = `CREATE ROLE "${roleName}"`
+      // The password is a string literal in CREATE ROLE and cannot be bound;
+      // reject characters that could break out of the literal.
+      if (password && /['\\;]/.test(password)) {
+        return error('Password contains disallowed characters')
+      }
+
+      let sql = `CREATE ROLE "${safeRole}"`
       if (canLogin)  sql += ` LOGIN`
       if (password)  sql += ` PASSWORD '${password}'`
 
       await queryExternal(connectionId, sql)
-      return created({ message: `Role "${roleName}" created successfully` })
+      return created({ message: `Role "${safeRole}" created successfully` })
     }
 
     // ── GRANT ─────────────────────────────────────────────
@@ -120,11 +146,13 @@ export async function POST(req: NextRequest) {
       if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
 
       const { connectionId, roleName, targetObject, objectType, privileges } = parsed.data
-      const privList = privileges.join(', ')
+      const safeRole   = assertIdent(roleName, 'roleName')
+      const safeObject = assertQualifiedName(targetObject, 'targetObject')
+      const privList   = privileges.join(', ') // values are enum-validated by zod
 
       await queryExternal(
         connectionId,
-        `GRANT ${privList} ON ${objectType} ${targetObject} TO "${roleName}"`
+        `GRANT ${privList} ON ${objectType} ${safeObject} TO "${safeRole}"`
       )
 
       // Log to our audit table
@@ -147,11 +175,13 @@ export async function POST(req: NextRequest) {
       if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
 
       const { connectionId, roleName, targetObject, objectType, privileges } = parsed.data
-      const privList = privileges.join(', ')
+      const safeRole   = assertIdent(roleName, 'roleName')
+      const safeObject = assertQualifiedName(targetObject, 'targetObject')
+      const privList   = privileges.join(', ') // values are enum-validated by zod
 
       await queryExternal(
         connectionId,
-        `REVOKE ${privList} ON ${objectType} ${targetObject} FROM "${roleName}"`
+        `REVOKE ${privList} ON ${objectType} ${safeObject} FROM "${safeRole}"`
       )
 
       return ok({ message: `Revoked ${privList} on ${targetObject} from ${roleName}` })
@@ -162,12 +192,16 @@ export async function POST(req: NextRequest) {
       const { connectionId, tableName, policyName, policyUsing } = body
       if (!connectionId || !tableName) return error('Missing connectionId or tableName')
 
-      await queryExternal(connectionId, `ALTER TABLE "${tableName}" ENABLE ROW LEVEL SECURITY`)
+      const safeTable = assertQualifiedName(String(tableName), 'tableName')
+
+      await queryExternal(connectionId, `ALTER TABLE ${safeTable} ENABLE ROW LEVEL SECURITY`)
 
       if (policyName && policyUsing) {
+        const safePolicy = assertIdent(String(policyName), 'policyName')
+        // policyUsing is a raw SQL boolean expression by design (admin-only).
         await queryExternal(
           connectionId,
-          `CREATE POLICY "${policyName}" ON "${tableName}" USING (${policyUsing})`
+          `CREATE POLICY "${safePolicy}" ON ${safeTable} USING (${policyUsing})`
         )
       }
 

@@ -85,30 +85,51 @@ export async function queryExternal<T = any>(
   }
 }
 
+export async function queryExternalMssql<T = any>(
+  connectionId: string,
+  sql: string
+): Promise<T[]> {
+  const pool   = await getExternalMssqlPool(connectionId)
+  const result = await pool.request().query(sql)
+  return result.recordset as T[]
+}
+
 export async function testConnection(
   host: string, port: number, dbName: string,
   username: string, password: string,
   dbType: 'postgresql' | 'mssql'
 ): Promise<{ success: boolean; latencyMs: number; error?: string }> {
   const start = Date.now()
-  try {
-    if (dbType === 'postgresql') {
-      const pool   = new Pool({ host, port, database: dbName, user: username, password, max: 1, connectionTimeoutMillis: 5000 })
+  if (dbType === 'postgresql') {
+    const pool = new Pool({ host, port, database: dbName, user: username, password, max: 1, connectionTimeoutMillis: 5000 })
+    try {
       const client = await pool.connect()
-      await client.query('SELECT 1')
-      client.release()
-      await pool.end()
-    } else {
-      const pool = await new mssql.ConnectionPool({
+      try {
+        await client.query('SELECT 1')
+      } finally {
+        client.release()
+      }
+      return { success: true, latencyMs: Date.now() - start }
+    } catch (err: any) {
+      return { success: false, latencyMs: Date.now() - start, error: err.message }
+    } finally {
+      // Always close the throwaway pool — on the error path too — to avoid leaks.
+      await pool.end().catch(() => {})
+    }
+  } else {
+    let pool: mssql.ConnectionPool | null = null
+    try {
+      pool = await new mssql.ConnectionPool({
         server: host, port, database: dbName, user: username, password,
         options: { encrypt: true, trustServerCertificate: true },
       }).connect()
       await pool.request().query('SELECT 1')
-      await pool.close()
+      return { success: true, latencyMs: Date.now() - start }
+    } catch (err: any) {
+      return { success: false, latencyMs: Date.now() - start, error: err.message }
+    } finally {
+      if (pool) await pool.close().catch(() => {})
     }
-    return { success: true, latencyMs: Date.now() - start }
-  } catch (err: any) {
-    return { success: false, latencyMs: Date.now() - start, error: err.message }
   }
 }
 

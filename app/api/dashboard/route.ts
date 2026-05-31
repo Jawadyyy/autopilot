@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getSupabaseAdmin } from '@/lib/supabase'
+import { query } from '@/lib/db/pool'
 import { getAuthUser } from '@/lib/auth/jwt'
 import { ok, unauthorized, serverError } from '@/lib/utils/response'
 
@@ -8,51 +8,60 @@ export async function GET(req: NextRequest) {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
 
-    const supabaseAdmin = getSupabaseAdmin()
-    if (!supabaseAdmin) return serverError('Database not available')
-
-    const [{ data: connections, error: connError }, { data: events, error: eventError }] = await Promise.all([
-      supabaseAdmin
-        .from('monitored_connections')
-        .select('id,name,host,db_name,db_type,status,last_checked_at')
-        .order('created_at', { ascending: false }),
-      supabaseAdmin
-        .from('detected_issues')
-        .select('id,detected_at:detected_at,timestamp:detected_at,severity,title,description,affected_table,affected_query,issue_type,is_resolved')
-        .order('detected_at', { ascending: false })
-        .limit(8),
+    const [connections, events, severityCounts] = await Promise.all([
+      query<any>(
+        `SELECT id, name, host, db_name, db_type, status, last_checked_at
+           FROM monitored_connections
+          ORDER BY created_at DESC`
+      ),
+      query<any>(
+        `SELECT id, detected_at, detected_at AS timestamp, severity, title,
+                description, affected_table, affected_query, issue_type, is_resolved
+           FROM detected_issues
+          ORDER BY detected_at DESC
+          LIMIT 8`
+      ),
+      query<{ severity: string; count: string }>(
+        `SELECT severity, COUNT(*) AS count
+           FROM detected_issues
+          WHERE is_resolved = FALSE
+          GROUP BY severity`
+      ),
     ])
 
-    if (connError || eventError) {
-      throw new Error(connError?.message || eventError?.message || 'Supabase query failed')
-    }
+    // Derive a simple 0-100 health score from unresolved issue severity.
+    const counts = Object.fromEntries(severityCounts.map((r) => [r.severity, Number(r.count)]))
+    const critical = counts.critical ?? 0
+    const warning  = counts.warning ?? 0
+    const info     = counts.info ?? 0
+    const activeAlerts = critical + warning + info
+    const healthScore = Math.max(0, 100 - critical * 15 - warning * 5 - info * 1)
 
-    const totalDatabases = connections?.length ?? 0
-    const totalAlerts = events?.filter((item: any) => !item.is_resolved).length ?? 0
-    const clusters = Array.from(
-      new Map((connections ?? []).map((connection: any) => [connection.id, connection]))
-    ).map((row: any) => ({
+    // Distinct database engines being monitored (stand-in for "regions").
+    const regionCount = new Set(connections.map((c) => c.db_type)).size
+
+    const clusters = connections.map((row) => ({
       id: row.id,
       name: row.name || row.db_name || `cluster-${row.id}`,
-      region: 'us-east-1',
       status: row.status === 'active' ? 'healthy' : 'warning',
-      active_sessions: Math.round(Math.random() * 400 + 20),
-      uptime: '99.98%',
-      query_latency: row.status === 'active' ? '12ms' : '84ms',
+      db_type: row.db_type,
+      last_checked_at: row.last_checked_at,
       connections: [(row.name ?? row.db_name) as string],
     }))
 
     return ok({
       summary: {
-        totalDatabases,
-        activeAlerts: totalAlerts,
-        avgLatency: '45ms',
-        systemHealth: 94,
+        databaseCount: connections.length,
+        regionCount,
+        activeAlerts,
+        // Per-query latency requires probing each external DB; not computed here.
+        avgLatencyMs: null,
+        healthScore,
       },
       clusters,
       events,
     })
-  } catch (err: any) {
+  } catch (err) {
     return serverError(err)
   }
 }

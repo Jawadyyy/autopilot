@@ -9,18 +9,26 @@ export interface JWTPayload {
   role:     UserRole
 }
 
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback_secret')
+// Never fall back to a hardcoded secret — an unset JWT_SECRET would let anyone
+// forge tokens. Resolve it lazily so a missing var fails the request, not the build.
+function getSecret(): Uint8Array {
+  const secret = process.env.JWT_SECRET
+  if (!secret) {
+    throw new Error('JWT_SECRET environment variable is not set')
+  }
+  return new TextEncoder().encode(secret)
+}
 
 export async function signToken(payload: JWTPayload): Promise<string> {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(process.env.JWT_EXPIRES_IN || '8h')
-    .sign(secret)
+    .sign(getSecret())
 }
 
 export async function verifyToken(token: string): Promise<JWTPayload> {
-  const { payload } = await jwtVerify(token, secret)
+  const { payload } = await jwtVerify(token, getSecret())
   return payload as unknown as JWTPayload
 }
 

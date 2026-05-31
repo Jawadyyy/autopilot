@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal } from '@/lib/db/connections'
-import { getSupabaseAdmin } from '@/lib/supabase'
 import { getAuthUser } from '@/lib/auth/jwt'
 import { ok, error, unauthorized, serverError } from '@/lib/utils/response'
 
@@ -32,12 +31,12 @@ export async function GET(req: NextRequest) {
         LIMIT 10
       `)
 
-      // Index usage stats
+      // Index usage stats (pg_stat_user_indexes exposes relname/indexrelname)
       const indexUsage = await queryExternal<any>(connectionId, `
         SELECT
           schemaname,
-          tablename,
-          indexname,
+          relname      AS tablename,
+          indexrelname AS indexname,
           idx_scan,
           idx_tup_read,
           idx_tup_fetch
@@ -46,10 +45,10 @@ export async function GET(req: NextRequest) {
         LIMIT 20
       `)
 
-      // Table stats
+      // Table stats (pg_stat_user_tables exposes relname, not tablename)
       const tableStats = await queryExternal<any>(connectionId, `
         SELECT
-          tablename,
+          relname AS tablename,
           seq_scan,
           idx_scan,
           n_live_tup,
@@ -87,10 +86,7 @@ export async function GET(req: NextRequest) {
 
     // ── HEALTH SUMMARY (all connections) ──────────────────
     if (type === 'health') {
-      const { data: summary, error: fetchError } = await supabaseAdmin
-        .from('v_connection_health')
-        .select('*')
-      if (fetchError) throw fetchError
+      const summary = await query(`SELECT * FROM v_connection_health`)
       return ok(summary)
     }
 
@@ -98,55 +94,29 @@ export async function GET(req: NextRequest) {
     if (type === 'trend') {
       if (!connectionId) return error('Missing connectionId')
 
-      const { data: trend, error: trendError } = await supabaseAdmin
-        .from('v_performance_trend_24h')
-        .select('*')
-        .eq('connection_id', connectionId)
-      if (trendError) throw trendError
+      const trend = await query(
+        `SELECT * FROM v_performance_trend_24h WHERE connection_id = $1`,
+        [connectionId]
+      )
       return ok(trend)
     }
 
     // ── ISSUE SUMMARY ─────────────────────────────────────
     if (type === 'issues') {
-      const queryBuilder = supabaseAdmin
-        .from('detected_issues')
-        .select(`issue_type,severity,
-          total:count(*),
-          resolved:count(is_resolved),
-          open:count(!is_resolved),
-          avg_resolution_mins`)
-      // For complex aggregates, fall back to a simplified summary
-      if (connectionId) queryBuilder.eq('connection_id', connectionId)
-
-      const { data: issueSummary, error: fetchError } = await queryBuilder
-      if (fetchError) {
-        // If the Supabase query fails because of unsupported aggregation syntax,
-        // fallback to the original SQL query for accuracy.
-        const params: any[] = []
-        let whereClause = ''
-
-        if (connectionId) {
-          params.push(connectionId)
-          whereClause = `WHERE connection_id = $1`
-        }
-
-        const fallbackIssueSummary = await query<any>(
-          `SELECT
-             issue_type,
-             severity,
-             COUNT(*)                                      AS total,
-             COUNT(*) FILTER (WHERE is_resolved = TRUE)   AS resolved,
-             COUNT(*) FILTER (WHERE is_resolved = FALSE)  AS open,
-             ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - detected_at)) / 60), 2) AS avg_resolution_mins
-           FROM detected_issues
-           ${whereClause}
-           GROUP BY issue_type, severity
-           ORDER BY total DESC`,
-          params
-        )
-        return ok(fallbackIssueSummary)
-      }
-
+      const issueSummary = await query<any>(
+        `SELECT
+           issue_type,
+           severity,
+           COUNT(*)                                      AS total,
+           COUNT(*) FILTER (WHERE is_resolved = TRUE)   AS resolved,
+           COUNT(*) FILTER (WHERE is_resolved = FALSE)  AS open,
+           ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - detected_at)) / 60), 2) AS avg_resolution_mins
+         FROM detected_issues
+         ${connectionId ? 'WHERE connection_id = $1' : ''}
+         GROUP BY issue_type, severity
+         ORDER BY total DESC`,
+        connectionId ? [connectionId] : undefined
+      )
       return ok(issueSummary)
     }
 

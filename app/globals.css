@@ -53,3 +53,25 @@ select {
 ::selection {
   background: rgba(47, 117, 255, 0.22);
 }
+
+/* Landing page motion */
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-10px); }
+}
+@keyframes drift {
+  0%   { transform: translate(0, 0) scale(1); opacity: 0.5; }
+  50%  { transform: translate(30px, -20px) scale(1.1); opacity: 0.8; }
+  100% { transform: translate(0, 0) scale(1); opacity: 0.5; }
+}
+@keyframes pulseLine {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 0.9; }
+}
+.animate-floaty { animation: floaty 6s ease-in-out infinite; }
+.animate-drift  { animation: drift 14s ease-in-out infinite; }
+.animate-pulseline { animation: pulseLine 2.4s ease-in-out infinite; }
+
+@media print {
+  aside, header, .no-print { display: none !important; }
+}

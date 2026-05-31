@@ -1,9 +1,76 @@
 import { NextRequest } from 'next/server'
 import { queryMssql } from '@/lib/db/mssql'
 import { query } from '@/lib/db/pool'
-import { getAuthUser } from '@/lib/auth/jwt'
-import { ok, error, unauthorized, serverError } from '@/lib/utils/response'
+import { getAuthUser, hasRole } from '@/lib/auth/jwt'
+import { ok, error, unauthorized, forbidden, serverError } from '@/lib/utils/response'
 import { z } from 'zod'
+
+function severityLevel(sev: string): number {
+  switch (sev) {
+    case 'critical': return 4
+    case 'high':     return 3
+    case 'warning': case 'medium': return 2
+    default:        return 1
+  }
+}
+
+// ETL: load the MSSQL star schema from the PostgreSQL OLTP detected_issues.
+// Idempotent — facts are keyed by source_issue_id and skipped if already loaded.
+async function runEtl(): Promise<{ processed: number }> {
+  const rows = await query<any>(`
+    SELECT i.id, i.issue_type, i.severity, i.is_resolved, i.detected_at, i.resolved_at,
+           c.id AS conn_id, c.name AS db_name, c.db_type, c.host
+      FROM detected_issues i
+      JOIN monitored_connections c ON c.id = i.connection_id
+     ORDER BY i.detected_at DESC
+     LIMIT 1000
+  `)
+
+  for (const r of rows) {
+    const d = new Date(r.detected_at)
+    const fullDate = d.toISOString().slice(0, 10)
+    const hour = d.getUTCHours()
+    const month = d.getUTCMonth() + 1
+    const resMin = r.resolved_at
+      ? Math.max(0, Math.round((new Date(r.resolved_at).getTime() - d.getTime()) / 60000))
+      : null
+
+    await queryMssql(
+      `IF NOT EXISTS (SELECT 1 FROM dim_database WHERE source_id = @sid)
+         INSERT INTO dim_database (source_id, database_name, db_type, host)
+         VALUES (@sid, @name, @type, @host)`,
+      { sid: r.conn_id, name: r.db_name, type: r.db_type, host: r.host }
+    )
+    await queryMssql(
+      `IF NOT EXISTS (SELECT 1 FROM dim_issue_type WHERE issue_category = @cat)
+         INSERT INTO dim_issue_type (issue_category) VALUES (@cat)`,
+      { cat: r.issue_type }
+    )
+    await queryMssql(
+      `IF NOT EXISTS (SELECT 1 FROM dim_time WHERE full_date = @fd AND hour_of_day = @h)
+         INSERT INTO dim_time (full_date, hour_of_day, day_of_week, month_num, quarter_num, year_num)
+         VALUES (@fd, @h, @dow, @mon, @q, @yr)`,
+      { fd: fullDate, h: hour, dow: d.getUTCDay(), mon: month, q: Math.floor((month - 1) / 3) + 1, yr: d.getUTCFullYear() }
+    )
+    await queryMssql(
+      `INSERT INTO fact_incidents
+         (source_issue_id, database_id, issue_type_id, time_id, severity_level, is_resolved, fix_success, resolution_minutes, detected_at)
+       SELECT @iid,
+         (SELECT database_id FROM dim_database WHERE source_id = @sid),
+         (SELECT issue_type_id FROM dim_issue_type WHERE issue_category = @cat),
+         (SELECT TOP 1 time_id FROM dim_time WHERE full_date = @fd AND hour_of_day = @h),
+         @sev, @res, @fix, @resmin, @det
+       WHERE NOT EXISTS (SELECT 1 FROM fact_incidents WHERE source_issue_id = @iid)`,
+      {
+        iid: r.id, sid: r.conn_id, cat: r.issue_type, fd: fullDate, h: hour,
+        sev: severityLevel(r.severity), res: r.is_resolved ? 1 : 0,
+        fix: r.is_resolved ? 1 : 0, resmin: resMin, det: d,
+      }
+    )
+  }
+
+  return { processed: rows.length }
+}
 
 const CubeSchema = z.object({
   dimensions: z.array(z.enum(['issue_type', 'db_name', 'hour', 'day', 'severity', 'fix_type'])).min(1),
@@ -103,6 +170,13 @@ export async function POST(req: NextRequest) {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
 
+    // Run the OLTP → OLAP ETL pipeline
+    if (req.nextUrl.searchParams.get('action') === 'etl') {
+      if (!hasRole(authUser.role, 'db_admin')) return forbidden()
+      const result = await runEtl()
+      return ok({ message: `ETL complete — ${result.processed} incident(s) processed`, ...result })
+    }
+
     const body   = await req.json()
     const parsed = CubeSchema.safeParse(body)
     if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
@@ -118,12 +192,14 @@ export async function POST(req: NextRequest) {
     // Build GROUP BY CUBE
     const groupCols = dimensions.map(d => DIM_MAP[d]).join(', ')
 
-    // Build WHERE clause
+    // Build WHERE clause with parameter placeholders (mssql named params) so
+    // filter values can never be interpolated into the SQL string directly.
     const whereClauses: string[] = []
-    if (filters?.startDate)  whereClauses.push(`dt.full_date >= '${filters.startDate}'`)
-    if (filters?.endDate)    whereClauses.push(`dt.full_date <= '${filters.endDate}'`)
-    if (filters?.dbName)     whereClauses.push(`dd.database_name = '${filters.dbName}'`)
-    if (filters?.issueType)  whereClauses.push(`dit.issue_category = '${filters.issueType}'`)
+    const params: Record<string, any> = {}
+    if (filters?.startDate) { whereClauses.push(`dt.full_date >= @startDate`); params.startDate = filters.startDate }
+    if (filters?.endDate)   { whereClauses.push(`dt.full_date <= @endDate`);   params.endDate   = filters.endDate }
+    if (filters?.dbName)    { whereClauses.push(`dd.database_name = @dbName`);  params.dbName    = filters.dbName }
+    if (filters?.issueType) { whereClauses.push(`dit.issue_category = @issueType`); params.issueType = filters.issueType }
 
     const whereSQL = whereClauses.length > 0
       ? `WHERE ${whereClauses.join(' AND ')}`
@@ -143,7 +219,7 @@ export async function POST(req: NextRequest) {
         ORDER BY ${dimensions.map(d => DIM_MAP[d]).join(', ')}
     `
 
-    const data = await queryMssql<any>(sql)
+    const data = await queryMssql<any>(sql, params)
 
     return ok({ sql, data })
   } catch (err) {

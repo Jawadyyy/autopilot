@@ -1,238 +1,174 @@
-import Image from 'next/image'
 import Link from 'next/link'
+
+const FEATURES = [
+  { icon: '◎', title: 'Live Monitoring', desc: 'Every screen continuously scans pg_stat_activity, locks, bloat and slow queries in real time.' },
+  { icon: '⚡', title: 'Self-Healing Autopilot', desc: 'Rules detect issues and apply or recommend fixes — index creation, vacuum, lock resolution.' },
+  { icon: '🛡', title: 'Issue Remediation', desc: 'Each alert ships with a clear “how to counter it” and copy-ready SQL.' },
+  { icon: '◧', title: 'Query Plan Diff', desc: 'EXPLAIN ANALYZE captured as JSONB and rendered before/after with cost deltas.' },
+  { icon: '⛁', title: 'Backup & Recovery', desc: 'pg_dump backups, WAL LSN tracking and point-in-time restore from the console.' },
+  { icon: '◴', title: 'OLAP Analytics', desc: 'Star-schema warehouse with CUBE/ROLLUP for incident trend analysis.' },
+]
+
+const STEPS = [
+  { n: '01', title: 'Connect', desc: 'Register any PostgreSQL or MSSQL database with host + credentials. No changes to the target.' },
+  { n: '02', title: 'Scan', desc: 'DB Autopilot polls the system catalogs and surfaces issues with severity and root cause.' },
+  { n: '03', title: 'Heal', desc: 'Apply the recommended fix in a click, or let autopilot rules resolve it automatically.' },
+]
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-[#03040b] text-white">
-      <header className="border-b border-white/10 bg-[#070b18]/80 px-8 py-5 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#2f75ff] flex items-center justify-center text-sm font-bold text-white">DA</div>
-            <div>
+    <div className="relative min-h-screen overflow-hidden bg-[#03040b] text-white">
+      {/* Ambient animated background */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -left-32 h-[420px] w-[420px] rounded-full bg-[#2f75ff]/20 blur-[120px] animate-drift" />
+        <div className="absolute top-1/3 -right-32 h-[460px] w-[460px] rounded-full bg-[#7faaff]/10 blur-[130px] animate-drift" style={{ animationDelay: '3s' }} />
+        <div className="absolute bottom-0 left-1/3 h-[380px] w-[380px] rounded-full bg-[#34d399]/10 blur-[120px] animate-drift" style={{ animationDelay: '6s' }} />
+      </div>
+
+      <div className="relative z-10">
+        <header className="border-b border-white/10 bg-[#070b18]/60 px-8 py-5 backdrop-blur-xl">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#2f75ff] flex items-center justify-center text-sm font-bold text-white shadow-lg shadow-[#2f75ff]/30">DA</div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#7faaff]">DB Autopilot</p>
             </div>
+            <nav className="hidden md:flex items-center gap-6 text-sm text-slate-300">
+              <a href="#features" className="transition hover:text-white">Features</a>
+              <a href="#how" className="transition hover:text-white">How it works</a>
+              <a href="#cta" className="transition hover:text-white">Get started</a>
+            </nav>
+            <Link href="/login" className="inline-flex items-center rounded-full bg-[#2f75ff] px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-[#2f75ff]/20 transition hover:bg-[#4b8cff]">
+              Sign In
+            </Link>
           </div>
+        </header>
 
-          <nav className="flex flex-wrap items-center gap-6 text-sm text-slate-300">
-            <Link href="#" className="transition hover:text-white">Product</Link>
-            <Link href="#" className="transition hover:text-white">Solutions</Link>
-            <Link href="#" className="transition hover:text-white">Pricing</Link>
-            <Link href="#" className="transition hover:text-white">Docs</Link>
-          </nav>
-
-          <Link
-            href="/login"
-            className="inline-flex items-center justify-center rounded-full bg-[#2f75ff] px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-[#2f75ff]/20 transition hover:bg-[#4b8cff]"
-          >
-            Sign In
-          </Link>
-        </div>
-      </header>
-
-      <main className="px-6 py-12 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <section className="grid gap-12 xl:grid-cols-[0.9fr_1fr] xl:items-center">
-            <div className="space-y-8">
-              <span className="inline-flex items-center rounded-full border border-[#7faaff]/20 bg-[#2f75ff]/10 px-4 py-2 text-xs uppercase tracking-[0.35em] text-[#7faaff]">
-                Now supporting PostgreSQL 16 & MSSQL 2022
-              </span>
-
-              <div className="space-y-6">
-                <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-white sm:text-6xl">
-                  The Database That <span className="text-[#7faaff]">Heals Itself.</span>
+        <main className="px-6 lg:px-8">
+          <div className="mx-auto max-w-7xl">
+            {/* Hero */}
+            <section className="grid gap-12 py-16 lg:grid-cols-[1fr_1fr] lg:items-center">
+              <div className="space-y-8">
+                <span className="inline-flex items-center gap-2 rounded-full border border-[#7faaff]/20 bg-[#2f75ff]/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-[#7faaff]">
+                  <span className="h-2 w-2 rounded-full bg-green-400 animate-pulseline" /> Self-monitoring · self-healing
+                </span>
+                <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
+                  The database that <span className="bg-gradient-to-r from-[#7faaff] to-[#34d399] bg-clip-text text-transparent">heals itself.</span>
                 </h1>
-                <p className="max-w-2xl text-base leading-8 text-slate-300 sm:text-lg">
-                  Automate slow query detection, deadlock resolution, and performance tuning across PostgreSQL and MSSQL clusters. The SRE command center for modern data infrastructure.
+                <p className="max-w-xl text-lg leading-8 text-slate-300">
+                  Connect PostgreSQL or MSSQL and watch DB Autopilot detect slow queries, deadlocks, bloat and lock contention in real time — then tell you exactly how to fix each one.
                 </p>
-              </div>
-
-              <div className="flex flex-wrap gap-4">
-                <Link
-                  href="/login"
-                  className="inline-flex items-center justify-center rounded-full bg-[#2f75ff] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2f75ff]/20 transition hover:bg-[#4b8cff]"
-                >
-                  Get Started for Free
-                </Link>
-                <a
-                  href="#"
-                  className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 transition hover:border-[#2f75ff] hover:bg-[#2f75ff]/10"
-                >
-                  View Technical Specs
-                </a>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-4">
-                {[
-                  { label: '50,000+ clusters monitored', value: '50,000+' },
-                  { label: 'Uptime guaranteed', value: '99.9%' },
-                  { label: 'Config setup', value: 'Zero' },
-                  { label: 'Avg healing latency', value: '12ms' },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-3xl border border-white/10 bg-[#081b34]/95 p-5">
-                    <p className="text-xs uppercase tracking-[0.32em] text-slate-400">{item.label}</p>
-                    <p className="mt-3 text-2xl font-semibold text-white">{item.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#06101f]/95 p-6 shadow-[0_40px_80px_rgba(0,0,0,0.35)]">
-              <div className="absolute inset-x-4 top-4 h-1 rounded-full bg-gradient-to-r from-[#2f75ff] via-[#7faaff] to-[#a5b7ff] opacity-40" />
-              <div className="relative grid gap-6">
-                <div className="rounded-[1.75rem] border border-white/10 bg-[#08182b]/90 p-6">
-                  <div className="flex items-center justify-between gap-4 text-sm text-slate-400">
-                    <span className="uppercase tracking-[0.3em]">Global throughput</span>
-                    <span className="font-semibold text-white">42.5k req/s</span>
-                  </div>
-                  <div className="mt-6 overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#061327]">
-                    <Image
-                      src="/hero-dashboard.svg"
-                      alt="Global throughput dashboard"
-                      width={800}
-                      height={520}
-                      className="h-[320px] w-full object-cover"
-                    />
-                  </div>
+                <div className="flex flex-wrap gap-4">
+                  <Link href="/login" className="inline-flex items-center rounded-full bg-[#2f75ff] px-7 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2f75ff]/30 transition hover:bg-[#4b8cff]">
+                    Launch Command Center →
+                  </Link>
+                  <a href="#features" className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-7 py-3 text-sm font-semibold text-slate-100 transition hover:border-[#2f75ff] hover:bg-[#2f75ff]/10">
+                    See features
+                  </a>
                 </div>
+                <div className="grid grid-cols-3 gap-4 pt-4">
+                  {[
+                    { v: 'Real-time', l: 'Catalog scanning' },
+                    { v: 'PG + MSSQL', l: 'Multi-engine' },
+                    { v: '0-touch', l: 'No target changes' },
+                  ].map((s) => (
+                    <div key={s.l} className="rounded-2xl border border-white/10 bg-[#081b34]/70 p-4">
+                      <p className="text-xl font-semibold text-white">{s.v}</p>
+                      <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{s.l}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-                <div className="rounded-[1.75rem] border border-white/10 bg-[#08182b]/90 p-6">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {[
-                      { title: 'Real-time Monitoring', detail: '24/7 system health and transaction logs.' },
-                      { title: 'Autopilot Healing', detail: 'Automate bottleneck recovery and index tuning.' },
-                      { title: 'Visual Query Plans', detail: 'Explain plans with heatmaps and node insights.' },
-                      { title: 'OLAP Analytics', detail: 'Long-term trend analysis for capacity planning.' },
-                    ].map((item) => (
-                      <div key={item.title} className="rounded-3xl border border-white/10 bg-[#071426] p-4">
-                        <p className="text-sm font-semibold text-white">{item.title}</p>
-                        <p className="mt-3 text-sm text-slate-400">{item.detail}</p>
-                      </div>
+              {/* Live feed mock */}
+              <div className="animate-floaty rounded-[2rem] border border-white/10 bg-[#06101f]/90 p-6 shadow-[0_40px_90px_rgba(0,0,0,0.45)] backdrop-blur">
+                <div className="flex items-center justify-between text-xs uppercase tracking-[0.28em] text-slate-400">
+                  <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-green-400 animate-pulseline" /> Live Health Feed</span>
+                  <span>prod-postgres</span>
+                </div>
+                <div className="mt-3 flex items-center gap-4 rounded-2xl border border-white/10 bg-[#08182b]/80 p-4">
+                  <div className="text-4xl font-bold text-green-400">92</div>
+                  <div className="text-xs text-slate-400">Health score<br />2 warnings · 0 critical</div>
+                  <div className="ml-auto h-12 flex items-end gap-1">
+                    {[40, 65, 50, 80, 60, 92, 70].map((h, i) => (
+                      <span key={i} className="w-2 rounded-t bg-[#2f75ff]/60" style={{ height: `${h}%` }} />
                     ))}
                   </div>
                 </div>
+                <div className="mt-4 space-y-3 text-sm">
+                  <div className="rounded-2xl border-l-4 border-orange-500 bg-orange-500/10 p-4">
+                    <p className="font-semibold text-white">HIGH · Table bloat: orders (43%)</p>
+                    <p className="mt-1 text-slate-400">12,402 dead tuples wasting space.</p>
+                    <p className="mt-2 font-mono text-xs text-green-300">VACUUM (ANALYZE) "public"."orders";</p>
+                  </div>
+                  <div className="rounded-2xl border-l-4 border-yellow-500 bg-yellow-500/10 p-4">
+                    <p className="font-semibold text-white">WARNING · Frequent sequential scans: users</p>
+                    <p className="mt-1 text-slate-400">Scanned 1,204× — index likely missing.</p>
+                    <p className="mt-2 font-mono text-xs text-green-300">CREATE INDEX ON "public"."users" (email);</p>
+                  </div>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          <section className="mt-16 grid gap-10 xl:grid-cols-[0.6fr_0.8fr]">
-            <div className="space-y-6 rounded-[2rem] border border-white/10 bg-[#081a2d]/95 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.25)]">
-              <p className="text-xs uppercase tracking-[0.32em] text-[#7faaff]">Precision Engineering for SREs</p>
-              <h2 className="text-3xl font-semibold text-white">Complex database administration simplified through intelligent automation and visual clarity.</h2>
-              <p className="text-sm leading-7 text-slate-300">
-                The command center for service reliability engineering teams managing PostgreSQL and MSSQL clusters at scale.
-              </p>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                {[
-                  'Conflict resolution with long-running transaction control',
-                  'Hypothetical index analysis before production rollout',
-                  'Visual query optimization and EXPLAIN insights',
-                  'Immutable backup workflow and audit trail review',
-                ].map((item) => (
-                  <div key={item} className="rounded-[1.75rem] border border-white/10 bg-[#0d2645]/95 p-5 text-sm text-slate-300">
-                    {item}
+            {/* Features */}
+            <section id="features" className="py-16">
+              <div className="text-center max-w-2xl mx-auto">
+                <p className="text-xs uppercase tracking-[0.32em] text-[#7faaff]">Everything in one console</p>
+                <h2 className="mt-3 text-3xl font-semibold sm:text-4xl">Observe, diagnose, and heal — without leaving the dashboard</h2>
+              </div>
+              <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {FEATURES.map((f) => (
+                  <div key={f.title} className="group rounded-[1.5rem] border border-white/10 bg-[#081a2d]/70 p-6 transition hover:border-[#2f75ff]/40 hover:bg-[#0c2241]/70">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#2f75ff]/15 text-xl text-[#7faaff] transition group-hover:bg-[#2f75ff]/25">{f.icon}</div>
+                    <h3 className="mt-4 text-lg font-semibold text-white">{f.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">{f.desc}</p>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
 
-            <div className="rounded-[2rem] border border-white/10 bg-[#08182d]/95 p-8 shadow-[0_30px_70px_rgba(0,0,0,0.2)]">
-              <div className="flex flex-col gap-6">
-                <div className="space-y-3">
-                  <p className="text-xs uppercase tracking-[0.32em] text-[#7faaff]">Watch It Heal In Real-Time.</p>
-                  <h3 className="text-2xl font-semibold text-white">The Live Health Feed doesn’t just alert you — it executes solutions.</h3>
-                  <p className="text-sm leading-7 text-slate-300">
-                    Watch DB Autopilot resolve deadlocks and create indexes as they happen.
-                  </p>
-                </div>
-
-                <div className="space-y-3 rounded-[1.75rem] border border-white/10 bg-[#061226]/95 p-5">
-                  <div className="rounded-3xl border border-[#2f75ff]/20 bg-[#04101f]/95 p-4 text-sm text-slate-300">
-                    <p className="font-semibold text-white">Conflict Resolution</p>
-                    <p className="mt-2">Automatically terminates long-running blocking transactions based on custom SRE rules.</p>
-                  </div>
-                  <div className="rounded-3xl border border-[#2f75ff]/20 bg-[#04101f]/95 p-4 text-sm text-slate-300">
-                    <p className="font-semibold text-white">Auto-indexing</p>
-                    <p className="mt-2">Hypothetical index analysis validates performance gains before production rollout.</p>
-                  </div>
-                </div>
-
-                <div className="rounded-[1.75rem] border border-white/10 bg-[#06112a]/95 p-4">
-                  <div className="flex items-center justify-between text-xs uppercase tracking-[0.28em] text-slate-400">
-                    <span>Live Health Feed</span>
-                    <span>14 Events Resolved Today</span>
-                  </div>
-
-                  <div className="mt-4 space-y-3 text-sm">
-                    <div className="rounded-3xl border-l-4 border-red-500 bg-red-500/10 p-4">
-                      <p className="font-semibold text-white">CRITICAL: DEADLOCK_DETECTED</p>
-                      <p className="text-slate-400 mt-1">PID 14202 blocked by PID 14205 (Schema: prod_v3)</p>
-                      <p className="text-slate-400 mt-1">Autopilot: Terminating lower-priority session (PID 14202)</p>
-                    </div>
-                    <div className="rounded-3xl border-l-4 border-amber-400 bg-amber-400/10 p-4">
-                      <p className="font-semibold text-white">WARNING: SLOW_QUERY_PEAK</p>
-                      <p className="text-slate-400 mt-1">SELECT * FROM orders WHERE status = 'pending' ... (Cost: 14,280)</p>
-                      <p className="text-slate-400 mt-1">Autopilot: Generating missing index idx_orders_status ... SUCCESS</p>
-                    </div>
-                    <div className="rounded-3xl border-l-4 border-cyan-400 bg-cyan-400/10 p-4">
-                      <p className="font-semibold text-white">INFO: VACUUM_TRIGGERED</p>
-                      <p className="text-slate-400 mt-1">Table: users (Bloat: 24%)</p>
-                      <p className="text-slate-400 mt-1">Status: Autovacuum completed in 1.4s</p>
-                    </div>
-                  </div>
-                </div>
+            {/* How it works */}
+            <section id="how" className="py-16">
+              <div className="text-center max-w-2xl mx-auto">
+                <p className="text-xs uppercase tracking-[0.32em] text-[#7faaff]">Three steps</p>
+                <h2 className="mt-3 text-3xl font-semibold sm:text-4xl">From connection to cure</h2>
               </div>
-            </div>
-          </section>
-        </div>
-      </main>
+              <div className="mt-12 grid gap-6 md:grid-cols-3">
+                {STEPS.map((s) => (
+                  <div key={s.n} className="relative rounded-[1.5rem] border border-white/10 bg-[#081a2d]/70 p-8">
+                    <span className="text-5xl font-bold text-[#2f75ff]/30">{s.n}</span>
+                    <h3 className="mt-3 text-xl font-semibold text-white">{s.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">{s.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
 
-      <footer className="border-t border-white/10 bg-[#070b18] px-8 py-12">
-        <div className="mx-auto max-w-7xl space-y-10">
-          <div className="grid gap-8 md:grid-cols-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.32em] text-[#7faaff] font-semibold">DB Autopilot</p>
-              <p className="mt-4 text-sm text-slate-400">The command center for SREs and DBAs managing high-scale PostgreSQL and MSSQL clusters at modern enterprises.</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.32em] text-[#7faaff] font-semibold">Product</p>
-              <ul className="mt-4 space-y-2 text-sm text-slate-400">
-                <li><a href="#" className="hover:text-white transition">Query Plan Diff</a></li>
-                <li><a href="#" className="hover:text-white transition">Cluster Status</a></li>
-                <li><a href="#" className="hover:text-white transition">Rules Engine</a></li>
-                <li><a href="#" className="hover:text-white transition">OLAP Analytics</a></li>
-              </ul>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.32em] text-[#7faaff] font-semibold">Resources</p>
-              <ul className="mt-4 space-y-2 text-sm text-slate-400">
-                <li><a href="#" className="hover:text-white transition">Documentation</a></li>
-                <li><a href="#" className="hover:text-white transition">API Reference</a></li>
-                <li><a href="#" className="hover:text-white transition">SRE Guides</a></li>
-                <li><a href="#" className="hover:text-white transition">Status Page</a></li>
-              </ul>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.32em] text-[#7faaff] font-semibold">Company</p>
-              <ul className="mt-4 space-y-2 text-sm text-slate-400">
-                <li><a href="#" className="hover:text-white transition">About Us</a></li>
-                <li><a href="#" className="hover:text-white transition">Security Compliance</a></li>
-                <li><a href="#" className="hover:text-white transition">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-white transition">Contact Support</a></li>
-              </ul>
-            </div>
+            {/* CTA */}
+            <section id="cta" className="py-16">
+              <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#0c2241] to-[#081428] p-10 text-center sm:p-16">
+                <div className="pointer-events-none absolute -top-20 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-[#2f75ff]/20 blur-[100px]" />
+                <h2 className="relative text-3xl font-semibold sm:text-4xl">Give your databases an autopilot.</h2>
+                <p className="relative mx-auto mt-4 max-w-xl text-slate-300">
+                  Sign in, connect a database, and see live health, issues, and fixes in under a minute.
+                </p>
+                <Link href="/login" className="relative mt-8 inline-flex items-center rounded-full bg-[#2f75ff] px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2f75ff]/30 transition hover:bg-[#4b8cff]">
+                  Get Started Free →
+                </Link>
+              </div>
+            </section>
           </div>
+        </main>
 
-          <div className="border-t border-white/10 pt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-slate-500">© 2024 DB Autopilot Systems. All rights reserved.</p>
-            <div className="flex gap-4">
-              <a href="#" className="text-slate-400 hover:text-white transition">Twitter</a>
-              <a href="#" className="text-slate-400 hover:text-white transition">GitHub</a>
-              <a href="#" className="text-slate-400 hover:text-white transition">LinkedIn</a>
+        <footer className="border-t border-white/10 bg-[#070b18]/80 px-8 py-10">
+          <div className="mx-auto max-w-7xl flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-[#2f75ff] flex items-center justify-center text-xs font-bold">DA</div>
+              <span className="text-sm text-slate-400">DB Autopilot — self-monitoring, self-healing databases.</span>
             </div>
+            <p className="text-xs text-slate-500">© {new Date().getFullYear()} DB Autopilot. Built for PostgreSQL & MSSQL.</p>
           </div>
-        </div>
-      </footer>
+        </footer>
+      </div>
     </div>
   )
 }

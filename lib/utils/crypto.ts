@@ -4,7 +4,12 @@ const ALGORITHM = 'aes-256-cbc'
 const IV_LENGTH = 16
 
 function getKey(): Buffer {
-  const secret = process.env.AES_SECRET_KEY || ''
+  // An empty fallback key would encrypt every stored DB password with a publicly
+  // known key. Require the secret to be configured.
+  const secret = process.env.AES_SECRET_KEY
+  if (!secret) {
+    throw new Error('AES_SECRET_KEY environment variable is not set')
+  }
   return crypto.createHash('sha256').update(secret).digest()
 }
 

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
-import { getSupabaseAdmin } from '@/lib/supabase'
+import { query } from '@/lib/db/pool'
 import { getAuthUser } from '@/lib/auth/jwt'
-import { ok, unauthorized, serverError, error } from '@/lib/utils/response'
+import { ok, unauthorized, serverError } from '@/lib/utils/response'
 
 export async function GET(req: NextRequest) {
   try {
@@ -9,24 +9,20 @@ export async function GET(req: NextRequest) {
     if (!authUser) return unauthorized()
 
     const severity = req.nextUrl.searchParams.get('severity')
-    const supabaseAdmin = getSupabaseAdmin()
-    if (!supabaseAdmin) return serverError('Database not available')
 
-    const query = supabaseAdmin
-      .from('detected_issues')
-      .select('id,detected_at,severity,title,description,affected_table,affected_query,is_resolved')
-      .order('detected_at', { ascending: false })
-      .limit(100)
-
-    if (severity && severity !== 'all') {
-      query.eq('severity', severity)
-    }
-
-    const { data, error: fetchError } = await query
-    if (fetchError) return error(fetchError.message)
+    const filterBySeverity = severity && severity !== 'all'
+    const data = await query(
+      `SELECT id, detected_at, detected_at AS timestamp, severity, title,
+              description, affected_table, affected_query, issue_type, is_resolved
+         FROM detected_issues
+        ${filterBySeverity ? 'WHERE severity = $1' : ''}
+        ORDER BY detected_at DESC
+        LIMIT 100`,
+      filterBySeverity ? [severity] : undefined
+    )
 
     return ok(data)
-  } catch (err: any) {
+  } catch (err) {
     return serverError(err)
   }
 }

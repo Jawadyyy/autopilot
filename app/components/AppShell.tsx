@@ -2,8 +2,9 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
+import { useConnection } from './ConnectionContext'
+import MonitorBar from './MonitorBar'
 
 const mainNavItems = [
   { label: 'Dashboard', href: '/dashboard', icon: '' },
@@ -23,22 +24,17 @@ const systemNavItems: Array<{ label: string; href: string; icon: string }> = []
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
-  const router = useRouter()
-  const [userRole, setUserRole] = useState<string | null>(null)
-  const [userName, setUserName] = useState<string | null>(null)
+  const { connections, selectedId, setSelectedId, role: userRole, userName } = useConnection()
 
-  useEffect(() => {
-    const role = localStorage.getItem('user_role')
-    const name = localStorage.getItem('user_name')
-    setUserRole(role)
-    setUserName(name)
-  }, [])
-
-  const handleLogout = () => {
-    localStorage.removeItem('auth_token')
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' })
+    } catch { /* ignore */ }
     localStorage.removeItem('user_role')
-    localStorage.removeItem('user_name')
-    router.push('/login')
+    localStorage.removeItem('user')
+    localStorage.removeItem('selected_connection')
+    // Full reload so the persistent providers reset (clears the scan poller).
+    window.location.assign('/login')
   }
 
   return (
@@ -121,18 +117,40 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {/* Main Content */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Header */}
-          <header className="border-b border-white/10 bg-[#0a0f1a]/50 px-8 py-4 flex items-center justify-between">
-            <div className="flex-1" />
+          <header className="border-b border-white/10 bg-[#0a0f1a]/50 px-8 py-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-slate-400 uppercase tracking-widest">Active DB</label>
+              {connections.length === 0 ? (
+                <Link href="/connections" className="text-sm font-semibold text-[#7faaff] hover:text-[#4b8cff]">
+                  Connect a database →
+                </Link>
+              ) : (
+                <select
+                  value={selectedId ?? ''}
+                  onChange={(e) => setSelectedId(e.target.value)}
+                  className="bg-[#0c1628] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-[#2f75ff]/50"
+                >
+                  {connections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} · {c.db_type === 'postgresql' ? 'PG' : 'MSSQL'} {c.status !== 'active' ? `(${c.status})` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
             <div className="flex items-center gap-4">
               <div className="text-right">
-                <p className="text-xs text-slate-400 uppercase tracking-widest">Connected</p>
-                <p className="text-sm font-semibold text-green-400">System Online</p>
+                <p className="text-xs text-slate-400 uppercase tracking-widest">Role</p>
+                <p className="text-sm font-semibold text-green-400 capitalize">{userRole?.replace('_', ' ') || 'Guest'}</p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-[#2f75ff]/20 flex items-center justify-center text-[#2f75ff] font-semibold">
                 {userName?.charAt(0).toUpperCase() || 'A'}
               </div>
             </div>
           </header>
+
+          {/* Always-on live monitoring strip */}
+          <MonitorBar />
 
           {/* Content Area */}
           <div className="flex-1 overflow-y-auto">
