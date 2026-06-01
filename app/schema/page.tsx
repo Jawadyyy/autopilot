@@ -2,30 +2,34 @@
 
 import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
+import { useConnection } from '../components/ConnectionContext'
 import { apiFetch } from '@/lib/api'
 
 export default function SchemaPage() {
+  const { selectedId, selected } = useConnection()
   const [tables, setTables] = useState<any[]>([])
   const [selectedTable, setSelectedTable] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
+    let active = true
     async function loadSchema() {
+      if (!selectedId) { setTables([]); setLoading(false); return }
+      setLoading(true)
+      setError('')
       try {
-        const connections = await apiFetch('/api/connections')
-        if (connections.length) {
-          const data = await apiFetch(`/api/monitor?connectionId=${connections[0].id}&type=bloat`)
-          setTables(data.data || [])
-        }
+        const res = await apiFetch(`/api/monitor?connectionId=${selectedId}&type=bloat`)
+        if (active) setTables(res.data || [])
       } catch (err) {
-        console.error('Failed to load schema data', err)
+        if (active) setError(err instanceof Error ? err.message : 'Failed to load schema data')
       } finally {
-        setLoading(false)
+        if (active) setLoading(false)
       }
     }
-
     loadSchema()
-  }, [])
+    return () => { active = false }
+  }, [selectedId])
 
   const totalBloat = tables.reduce((sum, t) => sum + (t.bloat_pct || 0), 0)
   const totalDeadTuples = tables.reduce((sum, t) => sum + (t.n_dead_tup || 0), 0)
@@ -34,9 +38,18 @@ export default function SchemaPage() {
     <AppShell>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-white">Public Schema Tables</h1>
-          <p className="text-slate-400 mt-2">Analyzing 40 tables for health and performance bottlenecks.</p>
+          <h1 className="text-3xl font-bold text-white">Schema Browser</h1>
+          <p className="text-slate-400 mt-2">
+            {selected ? `Analyzing ${tables.length} tables on ${selected.name}` : 'Select a connected database to inspect its tables.'}
+          </p>
         </div>
+
+        {error && (
+          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">{error}</div>
+        )}
+        {!loading && !error && !selectedId && (
+          <div className="p-4 bg-white/5 border border-white/10 rounded-lg text-sm text-slate-300">No database selected. Pick one from the “Active DB” menu in the top bar.</div>
+        )}
 
         <div className="grid md:grid-cols-4 gap-4">
           <div className="bg-[#0c1628] border border-white/10 rounded-lg p-4">

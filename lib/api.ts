@@ -1,15 +1,24 @@
+// Auth now rides on an httpOnly `token` cookie, so the client no longer reads or
+// sends the JWT itself — same-origin requests include the cookie automatically.
 export async function apiFetch(input: RequestInfo, init?: RequestInit) {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
   const headers = new Headers(init?.headers)
   headers.set('Content-Type', 'application/json')
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
 
   const response = await fetch(input, {
     ...init,
     headers,
+    credentials: 'same-origin',
   })
+
+  // Session expired / not authenticated → bounce to login.
+  if (response.status === 401 && typeof window !== 'undefined') {
+    localStorage.removeItem('user')
+    localStorage.removeItem('user_role')
+    if (!window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login'
+    }
+    throw new Error('Session expired')
+  }
 
   const contentType = response.headers.get('content-type') || ''
   const text = await response.text()

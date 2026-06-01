@@ -1,36 +1,110 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DB Autopilot
 
-## Getting Started
+Self-monitoring, self-healing database management platform. Connects to external
+PostgreSQL / MSSQL databases, detects issues in real time, and applies or
+recommends fixes — built on Next.js (App Router) with a PostgreSQL OLTP core and
+an MSSQL OLAP warehouse.
 
-First, run the development server:
+## 1. Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 20+
+- A PostgreSQL database for the app itself (a free **Supabase** project works well)
+- `pg_dump` / `psql` on the server's PATH (only needed for the Backup console)
+- (Optional) MSSQL for the OLAP analytics screen
+
+## 2. Configure environment
+
+Copy your settings into `.env.local` (already present in this repo):
+
+```env
+# Primary app database (PostgreSQL — e.g. Supabase)
+POSTGRES_HOST=db.xxxx.supabase.co
+POSTGRES_PORT=5432
+POSTGRES_DB=postgres
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your-password
+
+# Auth — REQUIRED, the app refuses to sign tokens without these
+JWT_SECRET=change-me-to-a-long-random-string
+JWT_EXPIRES_IN=8h
+
+# Encryption key for stored DB passwords — REQUIRED
+AES_SECRET_KEY=change-me-32+chars
+
+# Optional — where pg_dump writes backups
+BACKUP_DIR=./backups
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+> `JWT_SECRET` and `AES_SECRET_KEY` no longer have insecure fallbacks — they must be set.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 3. Create the schema
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Run the bundled schema against your **primary** Postgres database once. It creates
+all tables, indexes, views, stored procedures, triggers, an RLS demo policy, and a
+default admin user. It's idempotent and won't drop existing data.
 
-## Learn More
+```bash
+psql "postgresql://postgres:PASSWORD@HOST:5432/postgres" -f db/schema.sql
+```
 
-To learn more about Next.js, take a look at the following resources:
+Or paste the contents of [`db/schema.sql`](db/schema.sql) into the Supabase SQL editor.
+It's idempotent — **re-run it after pulling updates** to pick up new columns
+(e.g. the scan persistence columns on `detected_issues`).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### (Optional) OLAP warehouse
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+For the Analytics screen, create the MSSQL star schema and load it from the
+OLTP data:
 
-## Deploy on Vercel
+```bash
+sqlcmd -S localhost -d db_autopilot_olap -i db/olap_schema.sql
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Then open **OLAP Analytics → Run ETL** (admin only) to populate `fact_incidents`
+from `detected_issues`. Without MSSQL configured the screen shows a friendly
+"warehouse unavailable" notice.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Default login** is seeded for you:
+
+| Username | Password   | Role      |
+|----------|------------|-----------|
+| `admin`  | `admin123` | db_admin  |
+
+(Change it after first login.)
+
+## 4. Run the app
+
+```bash
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 and log in with the admin account above.
+
+## 5. Demo: connect a database and watch it live
+
+1. Go to **Connection Manager**.
+2. Click **Connect New Database** and fill in the target's host/port/db/user/password
+   (you can point it at the same Supabase DB, or a second free Neon/Railway/Supabase DB).
+3. Click **Test Connection** to verify the handshake, then **Save & Monitor**.
+4. On the connection row, click **Live metrics** — a panel polls the target every
+   5 seconds and shows active sessions, cache-hit ratio, average query time, and
+   slow-query count pulled live from `pg_stat_activity` / `pg_stat_statements`.
+
+> **Live query stats** (avg query time, slow-query count) require the
+> `pg_stat_statements` extension on the *target* database. On Supabase it's
+> available — enable it once with:
+> ```sql
+> CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+> ```
+> Session counts and locks work without it.
+
+## Tech stack
+
+| Layer            | Tech                          |
+|------------------|-------------------------------|
+| Frontend + API   | Next.js 16 (App Router)       |
+| Primary DB       | PostgreSQL (OLTP, JSONB, RLS) |
+| OLAP warehouse   | MSSQL (`/api/olap`)           |
+| Auth             | JWT (`jose`) + bcrypt         |
+| Live feed        | Server-Sent Events (`/api/ws`)|

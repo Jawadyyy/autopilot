@@ -1,69 +1,141 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createHmac } from 'crypto'
+import bcrypt from 'bcryptjs'
+import { query, queryOne } from '@/lib/db/pool'
+import { signToken, getAuthUser } from '@/lib/auth/jwt'
+import { ok, created, error, unauthorized, serverError } from '@/lib/utils/response'
+import { z } from 'zod'
 
-// Mock users for demo
-const MOCK_USERS = [
-  { id: 'user-1', identifier: 'sre-team', token: 'demo-token-123', role: 'db_admin', name: 'Admin User' },
-  { id: 'user-2', identifier: 'db-operator', token: 'operator-token', role: 'db_operator', name: 'Operator' },
-  { id: 'user-3', identifier: 'viewer', token: 'viewer-token', role: 'db_viewer', name: 'Viewer' },
-]
+const LoginSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+})
 
-function generateJWT(userId: string, role: string): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64')
-  const payload = Buffer.from(JSON.stringify({
-    userId,
-    role,
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 86400 // 24 hours
-  })).toString('base64')
-  
-  const signature = createHmac('sha256', process.env.JWT_SECRET || 'your-secret-key')
-    .update(`${header}.${payload}`)
-    .digest('base64')
-  
-  return `${header}.${payload}.${signature}`
+// NOTE: role is intentionally NOT accepted from the request body. Allowing a
+// self-registering user to pick their own role is a privilege-escalation hole
+// (anyone could register as db_admin). New accounts are always db_viewer;
+// elevation must be done by an existing admin out of band.
+const RegisterSchema = z.object({
+  username: z.string().min(3).max(100),
+  email:    z.string().email(),
+  password: z.string().min(6),
+})
+
+const MAX_AGE = 8 * 60 * 60 // 8h, matches JWT default
+
+// Store the JWT in an httpOnly cookie so it is never readable by JS (XSS-safe).
+function attachAuthCookie(res: NextResponse, token: string): NextResponse {
+  res.cookies.set('token', token, {
+    httpOnly: true,
+    secure:   process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path:     '/',
+    maxAge:   MAX_AGE,
+  })
+  return res
+}
+
+// ── Simple in-memory login rate limiter (per IP) ────────────────────────────
+const attempts = new Map<string, { count: number; resetAt: number }>()
+const WINDOW_MS = 5 * 60 * 1000
+const MAX_ATTEMPTS = 10
+
+function rateLimited(ip: string): boolean {
+  const now = Date.now()
+  const rec = attempts.get(ip)
+  if (!rec || now > rec.resetAt) {
+    attempts.set(ip, { count: 1, resetAt: now + WINDOW_MS })
+    return false
+  }
+  rec.count += 1
+  return rec.count > MAX_ATTEMPTS
+}
+
+function clientIp(req: NextRequest): string {
+  return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local'
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const action = req.nextUrl.searchParams.get('action')
+
+    if (action === 'logout') {
+      const res = NextResponse.json({ success: true, data: { message: 'Logged out' } })
+      res.cookies.set('token', '', { httpOnly: true, path: '/', maxAge: 0 })
+      return res
+    }
+
     const body = await req.json()
-    const { identifier, token, role } = body
 
-    if (!identifier || !token || !role) {
-      return NextResponse.json(
-        { message: 'Missing identifier, token, or role' },
-        { status: 400 }
+    if (action === 'login') {
+      if (rateLimited(clientIp(req))) return error('Too many attempts. Try again later.', 429)
+
+      const parsed = LoginSchema.safeParse(body)
+      if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
+
+      const { username, password } = parsed.data
+
+      const user = await queryOne<any>(
+        'SELECT * FROM users WHERE username = $1 AND is_active = TRUE',
+        [username]
       )
+      if (!user) return unauthorized('Invalid username or password')
+
+      const valid = await bcrypt.compare(password, user.password_hash)
+      if (!valid) return unauthorized('Invalid username or password')
+
+      await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id])
+
+      const token = await signToken({ userId: user.id, username: user.username, role: user.role })
+      const res = ok({ token, user: { id: user.id, username: user.username, email: user.email, role: user.role } })
+      return attachAuthCookie(res as NextResponse, token)
     }
 
-    // Find user in mock data
-    const user = MOCK_USERS.find(
-      u => u.identifier === identifier && u.token === token && u.role === role
-    )
+    if (action === 'register') {
+      const parsed = RegisterSchema.safeParse(body)
+      if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
 
-    if (!user) {
-      return NextResponse.json(
-        { message: 'Invalid credentials' },
-        { status: 401 }
+      const { username, email, password } = parsed.data
+
+      const existing = await queryOne(
+        'SELECT id FROM users WHERE username = $1 OR email = $2',
+        [username, email]
       )
+      if (existing) return error('Username or email already exists', 409)
+
+      const password_hash = await bcrypt.hash(password, 12)
+
+      // Role is always the least-privileged tier on self-registration.
+      const newUser = await queryOne<any>(
+        `INSERT INTO users (username, email, password_hash, role)
+         VALUES ($1, $2, $3, 'db_viewer')
+         RETURNING id, username, email, role, created_at`,
+        [username, email, password_hash]
+      )
+
+      const token = await signToken({ userId: newUser.id, username: newUser.username, role: newUser.role })
+      const res = created({ token, user: newUser })
+      return attachAuthCookie(res as NextResponse, token)
     }
 
-    const jwtToken = generateJWT(user.id, user.role)
-
-    return NextResponse.json({
-      token: jwtToken,
-      user: {
-        id: user.id,
-        identifier: user.identifier,
-        role: user.role,
-        name: user.name
-      }
-    })
+    return error('Invalid action. Use ?action=login, register or logout')
   } catch (err) {
-    console.error('Auth error:', err)
-    return NextResponse.json(
-      { message: 'Authentication failed' },
-      { status: 500 }
+    return serverError(err)
+  }
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const authUser = await getAuthUser(req)
+    if (!authUser) return unauthorized()
+
+    const user = await queryOne<any>(
+      'SELECT id, username, email, role, created_at, last_login_at FROM users WHERE id = $1',
+      [authUser.userId]
     )
+    if (!user) return unauthorized()
+
+    return ok(user)
+  } catch (err) {
+    return serverError(err)
   }
 }

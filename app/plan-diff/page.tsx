@@ -2,26 +2,31 @@
 
 import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
+import { useConnection } from '../components/ConnectionContext'
 import { apiFetch } from '@/lib/api'
 
 export default function QueryDiffPage() {
+  const { selectedId } = useConnection()
   const [plans, setPlans] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let active = true
     async function loadPlans() {
+      setLoading(true)
       try {
-        const data = await apiFetch('/api/plans?hasSeqScan=true')
-        setPlans(data)
+        const qs = selectedId ? `&connectionId=${selectedId}` : ''
+        const data = await apiFetch(`/api/plans?hasSeqScan=true${qs}`)
+        if (active) setPlans(data)
       } catch (err) {
         console.error('Failed to load plans', err)
       } finally {
-        setLoading(false)
+        if (active) setLoading(false)
       }
     }
-
     loadPlans()
-  }, [])
+    return () => { active = false }
+  }, [selectedId])
 
   const currentPlan = plans[0]
   const optimizedPlan = plans[1]
