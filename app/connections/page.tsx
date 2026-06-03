@@ -261,9 +261,9 @@ export default function ConnectionsPage() {
 
       {/* ── Connect new database modal ───────────────────────────── */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowForm(false)}>
+        <div className="fixed inset-0 z-50 overflow-y-auto flex items-start sm:items-center justify-center bg-black/60 p-4" onClick={() => setShowForm(false)}>
           <div
-            className="w-full max-w-lg bg-[#081f3f] border border-white/10 rounded-[1.5rem] p-6"
+            className="w-full max-w-lg bg-[#081f3f] border border-white/10 rounded-[1.5rem] p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-xl font-semibold text-white mb-1">Connect New Database</h2>

@@ -3,10 +3,13 @@ import { NextRequest } from 'next/server'
 
 export type UserRole = 'db_viewer' | 'db_operator' | 'db_admin'
 
+// Role is optional — role checks are neutralized so every authenticated
+// user shares the same interface. Keeping the field preserves compatibility
+// with existing tokens and DB rows.
 export interface JWTPayload {
   userId:   string
   username: string
-  role:     UserRole
+  role?:    UserRole
 }
 
 // Never fall back to a hardcoded secret — an unset JWT_SECRET would let anyone
@@ -39,18 +42,17 @@ export async function getAuthUser(req: NextRequest): Promise<JWTPayload | null> 
       ? authHeader.slice(7)
       : req.cookies.get('token')?.value
     if (!token) return null
-    return await verifyToken(token)
+    const payload = await verifyToken(token)
+    // ensure a role property exists for compatibility with UI code
+    if (!payload.role) payload.role = 'db_viewer'
+    return payload
   } catch {
     return null
   }
 }
 
-const ROLE_LEVELS: Record<UserRole, number> = {
-  db_viewer:   1,
-  db_operator: 2,
-  db_admin:    3,
-}
-
-export function hasRole(userRole: UserRole, required: UserRole): boolean {
-  return ROLE_LEVELS[userRole] >= ROLE_LEVELS[required]
+// Role checks are intentionally disabled — return true for all checks so
+// routes using `hasRole()` keep working without enforcing permissions.
+export function hasRole(_userRole: UserRole | undefined, _required: UserRole): boolean {
+  return true
 }

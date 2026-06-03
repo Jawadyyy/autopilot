@@ -28,8 +28,12 @@ export function serverError(err: unknown) {
   // Always log the full error server-side, but never leak internal messages
   // (DB errors, SQL fragments, connection strings) to clients in production.
   console.error('[API Error]', err)
-  const message = process.env.NODE_ENV === 'production'
+  const isProd = process.env.NODE_ENV === 'production'
+  const message = isProd
     ? 'Internal server error'
     : err instanceof Error ? err.message : 'Internal server error'
-  return error(message, 500)
+  const details = isProd ? undefined : (
+    err instanceof Error ? { stack: err.stack } : { raw: err }
+  )
+  return error(message, 500, details)
 }
