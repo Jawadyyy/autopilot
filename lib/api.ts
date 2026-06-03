@@ -34,7 +34,10 @@ export async function apiFetch(input: RequestInfo, init?: RequestInit) {
 
   if (!response.ok) {
     if (json) {
-      throw new Error(json.error || json.message || text || `Request failed with status ${response.status}`)
+      const base = json.error || json.message || text || `Request failed with status ${response.status}`
+      // If the server included detailed info (stack) include it for dev-time debugging
+      const detailsStack = json.details?.stack
+      throw new Error(detailsStack ? `${base}\n${detailsStack}` : base)
     }
     throw new Error(text || `Request failed with status ${response.status}`)
   }
