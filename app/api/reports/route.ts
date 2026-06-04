@@ -3,12 +3,14 @@ import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal } from '@/lib/db/connections'
 import { getAuthUser } from '@/lib/auth/jwt'
 import { ok, error, unauthorized, serverError } from '@/lib/utils/response'
+import { ensureSchema } from '@/lib/db/ensureSchema'
 
 // GET /api/reports?type=performance|health|summary&connectionId=xxx
 export async function GET(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
+    await ensureSchema()
 
     const type         = req.nextUrl.searchParams.get('type') || 'summary'
     const connectionId = req.nextUrl.searchParams.get('connectionId')

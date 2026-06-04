@@ -153,43 +153,43 @@ export default function ConnectionsPage() {
   }
 
   const statusPill = (status: string) =>
-    status === 'active' ? 'bg-green-500/20 text-green-300' :
-    status === 'paused' ? 'bg-slate-500/20 text-slate-300' :
-    'bg-red-500/20 text-red-300'
+    status === 'active' ? 'bg-emerald-100 text-emerald-700' :
+    status === 'paused' ? 'bg-slate-100 text-slate-600' :
+    'bg-red-100 text-red-700'
 
   return (
     <AppShell>
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-white">Connection Manager</h1>
-            <p className="text-slate-400 mt-2">Register external PostgreSQL / MSSQL databases and watch them live.</p>
+            <h1 className="text-3xl font-bold text-slate-900">Connection Manager</h1>
+            <p className="text-slate-500 mt-2">Register external PostgreSQL / MSSQL databases and watch them live.</p>
           </div>
           <button
             onClick={openForm}
             disabled={!canManage}
             title={canManage ? '' : 'Requires db_operator or db_admin role'}
-            className="bg-[#2f75ff] hover:bg-[#4b8cff] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2 px-6 rounded-lg transition"
+            className="bg-[#2f6bff] hover:bg-[#1f54e0] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2 px-5 rounded-lg transition shadow-sm"
           >
             + Connect New Database
           </button>
         </div>
 
         {loading ? (
-          <div className="text-slate-300">Loading connections...</div>
+          <div className="text-slate-500">Loading connections...</div>
         ) : connections.length === 0 ? (
-          <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-10 text-center">
-            <p className="text-slate-300 font-medium">No databases connected yet</p>
-            <p className="text-slate-500 text-sm mt-1">Click “Connect New Database” to register your first one.</p>
+          <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-sm">
+            <p className="text-slate-700 font-medium">No databases connected yet</p>
+            <p className="text-slate-400 text-sm mt-1">Click “Connect New Database” to register your first one.</p>
           </div>
         ) : (
           <div className="space-y-3">
             {connections.map((conn) => (
-              <div key={conn.id} className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-5">
+              <div key={conn.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-3">
-                      <span className="text-white font-semibold">{conn.name}</span>
+                      <span className="text-slate-900 font-semibold">{conn.name}</span>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusPill(conn.status)}`}>
                         {conn.status}
                       </span>
@@ -197,19 +197,19 @@ export default function ConnectionsPage() {
                         {conn.db_type === 'postgresql' ? 'PostgreSQL' : 'MSSQL'}
                       </span>
                     </div>
-                    <p className="text-slate-400 text-sm mt-1 font-mono">
+                    <p className="text-slate-500 text-sm mt-1 font-mono">
                       {conn.username}@{conn.host}:{conn.port}/{conn.db_name}
                     </p>
-                    <p className="text-slate-500 text-xs mt-1">
+                    <p className="text-slate-400 text-xs mt-1">
                       Last checked: {conn.last_checked_at ? new Date(conn.last_checked_at).toLocaleString() : 'never'}
-                      {conn.last_error && <span className="text-red-400"> · {conn.last_error}</span>}
+                      {conn.last_error && <span className="text-red-600"> · {conn.last_error}</span>}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setExpanded(expanded === conn.id ? null : conn.id)}
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#2f75ff]/15 text-[#7faaff] hover:bg-[#2f75ff]/25 transition"
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#eef3ff] text-[#1f54e0] hover:bg-[#dde8ff] transition"
                     >
                       {expanded === conn.id ? 'Hide metrics' : 'Live metrics'}
                     </button>
@@ -217,7 +217,7 @@ export default function ConnectionsPage() {
                       <button
                         onClick={() => toggleStatus(conn)}
                         disabled={busyId === conn.id}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 transition disabled:opacity-50"
+                        className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition disabled:opacity-50"
                       >
                         {conn.status === 'active' ? 'Pause' : 'Resume'}
                       </button>
@@ -226,7 +226,7 @@ export default function ConnectionsPage() {
                       <button
                         onClick={() => remove(conn)}
                         disabled={busyId === conn.id}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-300 hover:bg-red-500/20 transition disabled:opacity-50"
+                        className="text-xs px-3 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition disabled:opacity-50"
                       >
                         Remove
                       </button>
@@ -242,17 +242,17 @@ export default function ConnectionsPage() {
           </div>
         )}
 
-        <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Connection Health</h3>
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">Connection Health</h3>
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">Active</span>
-            <span className="text-green-400 font-semibold">
+            <span className="text-slate-500">Active</span>
+            <span className="text-emerald-600 font-semibold">
               {connections.filter((c) => c.status === 'active').length} / {connections.length}
             </span>
           </div>
-          <div className="w-full bg-[#0a0f1a] rounded-full h-2 mt-2">
+          <div className="w-full bg-slate-100 rounded-full h-2 mt-2">
             <div
-              className="bg-green-500 h-2 rounded-full transition-all"
+              className="bg-emerald-500 h-2 rounded-full transition-all"
               style={{ width: `${connections.length ? (connections.filter((c) => c.status === 'active').length / connections.length) * 100 : 0}%` }}
             />
           </div>
@@ -261,16 +261,16 @@ export default function ConnectionsPage() {
 
       {/* ── Connect new database modal ───────────────────────────── */}
       {showForm && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-start sm:items-center justify-center bg-black/60 p-4" onClick={() => setShowForm(false)}>
+        <div className="fixed inset-0 z-50 overflow-y-auto flex items-start sm:items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" onClick={() => setShowForm(false)}>
           <div
-            className="w-full max-w-lg bg-[#081f3f] border border-white/10 rounded-[1.5rem] p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
+            className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl p-6 max-h-[calc(100vh-4rem)] overflow-y-auto shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-xl font-semibold text-white mb-1">Connect New Database</h2>
-            <p className="text-slate-400 text-sm mb-5">The target database needs no changes — we only read its system catalogs.</p>
+            <h2 className="text-xl font-semibold text-slate-900 mb-1">Connect New Database</h2>
+            <p className="text-slate-500 text-sm mb-5">The target database needs no changes — we only read its system catalogs.</p>
 
             {formError && (
-              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">{formError}</div>
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>
             )}
 
             <div className="grid grid-cols-2 gap-4">
@@ -314,7 +314,7 @@ export default function ConnectionsPage() {
 
             {testResult && (
               <div className={`mt-4 p-3 rounded-lg text-sm border ${
-                testResult.success ? 'bg-green-500/10 border-green-500/30 text-green-300' : 'bg-red-500/10 border-red-500/30 text-red-400'
+                testResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'
               }`}>
                 {testResult.success
                   ? `✓ Connected in ${testResult.latencyMs}ms`
@@ -323,21 +323,21 @@ export default function ConnectionsPage() {
             )}
 
             <div className="flex justify-between gap-3 mt-6">
-              <button onClick={() => setShowForm(false)} className="text-sm text-slate-400 hover:text-white px-4 py-2">
+              <button onClick={() => setShowForm(false)} className="text-sm font-medium text-slate-500 hover:text-slate-900 px-4 py-2">
                 Cancel
               </button>
               <div className="flex gap-3">
                 <button
                   onClick={handleTest}
                   disabled={testing || !form.host || !form.db_name || !form.username || !form.password}
-                  className="text-sm font-semibold px-4 py-2 rounded-lg bg-white/5 text-slate-200 hover:bg-white/10 transition disabled:opacity-50"
+                  className="text-sm font-semibold px-4 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition disabled:opacity-50"
                 >
                   {testing ? 'Testing...' : 'Test Connection'}
                 </button>
                 <button
                   onClick={handleSave}
                   disabled={saving || !form.name || !form.host || !form.db_name || !form.username || !form.password}
-                  className="text-sm font-semibold px-5 py-2 rounded-lg bg-[#2f75ff] hover:bg-[#4b8cff] text-white transition disabled:opacity-50"
+                  className="text-sm font-semibold px-5 py-2 rounded-lg bg-[#2f6bff] hover:bg-[#1f54e0] text-white transition disabled:opacity-50 shadow-sm"
                 >
                   {saving ? 'Saving...' : 'Save & Monitor'}
                 </button>
@@ -350,12 +350,12 @@ export default function ConnectionsPage() {
   )
 }
 
-const inputCls = 'w-full bg-[#0a1628]/60 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-600 outline-none focus:border-[#2f75ff]/50 transition'
+const inputCls = 'w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm placeholder-slate-400 outline-none focus:border-[#2f6bff] focus:ring-2 focus:ring-[#2f6bff]/15 transition'
 
 function Field({ label, className = '', children }: { label: string; className?: string; children: React.ReactNode }) {
   return (
     <div className={className}>
-      <label className="block text-xs uppercase tracking-wide text-slate-400 mb-1.5">{label}</label>
+      <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">{label}</label>
       {children}
     </div>
   )

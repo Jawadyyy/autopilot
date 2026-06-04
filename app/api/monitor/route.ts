@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server'
+import crypto from 'crypto'
 import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal, queryExternalMssql } from '@/lib/db/connections'
 import { getAuthUser, hasRole } from '@/lib/auth/jwt'
 import { ok, unauthorized, forbidden, serverError, error } from '@/lib/utils/response'
 import { broadcast } from '@/lib/realtime'
+import { ensureSchema } from '@/lib/db/ensureSchema'
 
 // Queries run against external PostgreSQL databases
 const SLOW_QUERY_SQL = `
@@ -111,28 +113,65 @@ async function runScan(connectionId: string): Promise<ScanResult> {
     cache_hit_ratio: null, avg_query_ms: null, slow_query_count: null,
   }
 
-  // Activity + cache metrics (no extension required)
-  try {
-    const m = await queryExternal<any>(connectionId, `
+  // Run every read-only check concurrently — latency to the remote DB dominates,
+  // so firing them in parallel cuts a multi-second scan to ~one round-trip.
+  const safe = <T = any>(sql: string): Promise<T[]> =>
+    queryExternal<T>(connectionId, sql).catch(() => [] as T[])
+
+  const [metricRows, statRows, bloat, seq, slow, longTx, locks] = await Promise.all([
+    safe(`
       SELECT
         (SELECT count(*) FROM pg_stat_activity WHERE state = 'active')               AS active_connections,
         (SELECT count(*) FROM pg_stat_activity WHERE state = 'idle')                 AS idle_connections,
         (SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction')  AS idle_in_tx,
         (SELECT ROUND(sum(blks_hit)::numeric / NULLIF(sum(blks_hit) + sum(blks_read), 0) * 100, 2)
-           FROM pg_stat_database)                                                    AS cache_hit_ratio
-    `)
-    Object.assign(metrics, m[0] ?? {})
-  } catch { /* metrics unavailable */ }
-
-  // pg_stat_statements metrics (optional extension)
-  try {
-    const s = await queryExternal<any>(connectionId, `
-      SELECT ROUND(AVG(mean_exec_time)::numeric, 2)                       AS avg_query_ms,
-             COUNT(*) FILTER (WHERE mean_exec_time > 1000)                AS slow_query_count
+           FROM pg_stat_database)                                                    AS cache_hit_ratio`),
+    safe(`
+      SELECT ROUND(AVG(mean_exec_time)::numeric, 2)        AS avg_query_ms,
+             COUNT(*) FILTER (WHERE mean_exec_time > 1000) AS slow_query_count
+        FROM pg_stat_statements`),
+    safe(`
+      SELECT schemaname, relname AS tablename, n_dead_tup,
+             ROUND(n_dead_tup::numeric / NULLIF(n_live_tup + n_dead_tup, 0) * 100, 2) AS bloat_pct
+        FROM pg_stat_user_tables
+       WHERE n_dead_tup > 50
+       ORDER BY bloat_pct DESC NULLS LAST
+       LIMIT 5`),
+    safe(`
+      SELECT schemaname, relname AS tablename, seq_scan, idx_scan, n_live_tup
+        FROM pg_stat_user_tables
+       WHERE seq_scan > 50 AND n_live_tup > 1000
+         AND (idx_scan IS NULL OR seq_scan > idx_scan * 2)
+       ORDER BY seq_scan DESC
+       LIMIT 5`),
+    safe(`
+      SELECT LEFT(query, 160) AS query, calls,
+             ROUND(mean_exec_time::numeric, 2) AS mean_ms
         FROM pg_stat_statements
-    `)
-    if (s[0]) { metrics.avg_query_ms = s[0].avg_query_ms; metrics.slow_query_count = s[0].slow_query_count }
-  } catch { /* pg_stat_statements not enabled */ }
+       WHERE mean_exec_time > 500
+       ORDER BY mean_exec_time DESC
+       LIMIT 5`),
+    safe(`
+      SELECT pid, usename, state,
+             ROUND(EXTRACT(EPOCH FROM (now() - xact_start))::numeric, 0) AS xact_secs,
+             LEFT(query, 160) AS query
+        FROM pg_stat_activity
+       WHERE xact_start IS NOT NULL
+         AND now() - xact_start > interval '60 seconds'
+       ORDER BY xact_start ASC
+       LIMIT 5`),
+    safe(`
+      SELECT blocked.pid AS blocked_pid, blocking.pid AS blocking_pid,
+             LEFT(blocked.query, 120) AS blocked_query
+        FROM pg_stat_activity blocked
+        JOIN pg_stat_activity blocking
+          ON blocking.pid = ANY(pg_blocking_pids(blocked.pid))
+       WHERE cardinality(pg_blocking_pids(blocked.pid)) > 0
+       LIMIT 5`),
+  ])
+
+  Object.assign(metrics, metricRows[0] ?? {})
+  if (statRows[0]) { metrics.avg_query_ms = statRows[0].avg_query_ms; metrics.slow_query_count = statRows[0].slow_query_count }
 
   // Low cache hit ratio
   if (metrics.cache_hit_ratio != null) {
@@ -164,136 +203,83 @@ async function runScan(connectionId: string): Promise<ScanResult> {
   }
 
   // Table bloat
-  try {
-    const bloat = await queryExternal<any>(connectionId, `
-      SELECT schemaname, relname AS tablename, n_dead_tup,
-             ROUND(n_dead_tup::numeric / NULLIF(n_live_tup + n_dead_tup, 0) * 100, 2) AS bloat_pct
-        FROM pg_stat_user_tables
-       WHERE n_dead_tup > 50
-       ORDER BY bloat_pct DESC NULLS LAST
-       LIMIT 5
-    `)
-    for (const t of bloat) {
-      const pct = Number(t.bloat_pct)
-      if (pct >= 20) {
-        issues.push({
-          issue_type: 'table_bloat',
-          severity: pct >= 40 ? 'high' : 'warning',
-          title: `Table bloat: ${t.tablename} (${pct}%)`,
-          description: `${t.tablename} has ${t.n_dead_tup} dead tuples (${pct}% bloat), wasting space and slowing scans.`,
-          affected: `${t.schemaname}.${t.tablename}`,
-          recommendation: 'Reclaim dead tuples by running VACUUM ANALYZE on the table.',
-          sql: `VACUUM (ANALYZE) ${ident(t.schemaname, t.tablename)};`,
-          fingerprint: `table_bloat:${t.schemaname}.${t.tablename}`,
-          autofix: true, safeAuto: true,
-        })
-      }
+  for (const t of bloat) {
+    const pct = Number(t.bloat_pct)
+    if (pct >= 20) {
+      issues.push({
+        issue_type: 'table_bloat',
+        severity: pct >= 40 ? 'high' : 'warning',
+        title: `Table bloat: ${t.tablename} (${pct}%)`,
+        description: `${t.tablename} has ${t.n_dead_tup} dead tuples (${pct}% bloat), wasting space and slowing scans.`,
+        affected: `${t.schemaname}.${t.tablename}`,
+        recommendation: 'Reclaim dead tuples by running VACUUM ANALYZE on the table.',
+        sql: `VACUUM (ANALYZE) ${ident(t.schemaname, t.tablename)};`,
+        fingerprint: `table_bloat:${t.schemaname}.${t.tablename}`,
+        autofix: true, safeAuto: true,
+      })
     }
-  } catch { /* skip */ }
+  }
 
   // Sequential scans on large tables → missing index candidates
-  try {
-    const seq = await queryExternal<any>(connectionId, `
-      SELECT schemaname, relname AS tablename, seq_scan, idx_scan, n_live_tup
-        FROM pg_stat_user_tables
-       WHERE seq_scan > 50 AND n_live_tup > 1000
-         AND (idx_scan IS NULL OR seq_scan > idx_scan * 2)
-       ORDER BY seq_scan DESC
-       LIMIT 5
-    `)
-    for (const t of seq) {
-      issues.push({
-        issue_type: 'missing_index',
-        severity: 'warning',
-        title: `Frequent sequential scans: ${t.tablename}`,
-        description: `${t.tablename} was sequentially scanned ${t.seq_scan} times (${Number(t.n_live_tup).toLocaleString()} rows). A supporting index is likely missing.`,
-        affected: `${t.schemaname}.${t.tablename}`,
-        recommendation: 'Find the filtered/joined column with EXPLAIN ANALYZE and add a B-tree index.',
-        sql: `-- Confirm the scan, then index the filtered column:\nEXPLAIN ANALYZE SELECT * FROM ${ident(t.schemaname, t.tablename)} WHERE <column> = <value>;\nCREATE INDEX ON ${ident(t.schemaname, t.tablename)} (<column>);`,
-        fingerprint: `missing_index:${t.schemaname}.${t.tablename}`,
-        autofix: false, safeAuto: false,
-      })
-    }
-  } catch { /* skip */ }
+  for (const t of seq) {
+    issues.push({
+      issue_type: 'missing_index',
+      severity: 'warning',
+      title: `Frequent sequential scans: ${t.tablename}`,
+      description: `${t.tablename} was sequentially scanned ${t.seq_scan} times (${Number(t.n_live_tup).toLocaleString()} rows). A supporting index is likely missing.`,
+      affected: `${t.schemaname}.${t.tablename}`,
+      recommendation: 'Find the filtered/joined column with EXPLAIN ANALYZE and add a B-tree index.',
+      sql: `-- Confirm the scan, then index the filtered column:\nEXPLAIN ANALYZE SELECT * FROM ${ident(t.schemaname, t.tablename)} WHERE <column> = <value>;\nCREATE INDEX ON ${ident(t.schemaname, t.tablename)} (<column>);`,
+      fingerprint: `missing_index:${t.schemaname}.${t.tablename}`,
+      autofix: false, safeAuto: false,
+    })
+  }
 
   // Slow queries (needs pg_stat_statements)
-  try {
-    const slow = await queryExternal<any>(connectionId, `
-      SELECT LEFT(query, 160) AS query, calls,
-             ROUND(mean_exec_time::numeric, 2) AS mean_ms
-        FROM pg_stat_statements
-       WHERE mean_exec_time > 500
-       ORDER BY mean_exec_time DESC
-       LIMIT 5
-    `)
-    for (const q of slow) {
-      const mean = Number(q.mean_ms)
-      issues.push({
-        issue_type: 'slow_query',
-        severity: mean > 2000 ? 'high' : 'warning',
-        title: `Slow query (${mean}ms avg)`,
-        description: `Called ${q.calls}× averaging ${mean}ms: ${q.query}`,
-        recommendation: 'Capture the plan and add indexes, or rewrite the query to avoid full scans/sorts.',
-        sql: `EXPLAIN (ANALYZE, BUFFERS) ${q.query};`,
-        fingerprint: `slow_query:${q.query.slice(0, 80)}`,
-        autofix: false, safeAuto: false,
-      })
-    }
-  } catch { /* skip */ }
+  for (const q of slow) {
+    const mean = Number(q.mean_ms)
+    issues.push({
+      issue_type: 'slow_query',
+      severity: mean > 2000 ? 'high' : 'warning',
+      title: `Slow query (${mean}ms avg)`,
+      description: `Called ${q.calls}× averaging ${mean}ms: ${q.query}`,
+      recommendation: 'Capture the plan and add indexes, or rewrite the query to avoid full scans/sorts.',
+      sql: `EXPLAIN (ANALYZE, BUFFERS) ${q.query};`,
+      fingerprint: `slow_query:${q.query.slice(0, 80)}`,
+      autofix: false, safeAuto: false,
+    })
+  }
 
   // Long-running transactions
-  try {
-    const longTx = await queryExternal<any>(connectionId, `
-      SELECT pid, usename, state,
-             ROUND(EXTRACT(EPOCH FROM (now() - xact_start))::numeric, 0) AS xact_secs,
-             LEFT(query, 160) AS query
-        FROM pg_stat_activity
-       WHERE xact_start IS NOT NULL
-         AND now() - xact_start > interval '60 seconds'
-       ORDER BY xact_start ASC
-       LIMIT 5
-    `)
-    for (const t of longTx) {
-      const secs = Number(t.xact_secs)
-      issues.push({
-        issue_type: 'long_transaction',
-        severity: secs > 300 ? 'high' : 'warning',
-        title: `Long-running transaction (PID ${t.pid}, ${secs}s)`,
-        description: `Session ${t.pid} (${t.usename ?? 'unknown'}) has held a transaction open for ${secs}s: ${t.query}`,
-        affected: `PID ${t.pid}`,
-        recommendation: 'Commit/rollback the work, or terminate the session if it is stuck.',
-        sql: `SELECT pg_terminate_backend(${t.pid});`,
-        fingerprint: `long_transaction:${t.pid}`,
-        autofix: true, safeAuto: false,
-      })
-    }
-  } catch { /* skip */ }
+  for (const t of longTx) {
+    const secs = Number(t.xact_secs)
+    issues.push({
+      issue_type: 'long_transaction',
+      severity: secs > 300 ? 'high' : 'warning',
+      title: `Long-running transaction (PID ${t.pid}, ${secs}s)`,
+      description: `Session ${t.pid} (${t.usename ?? 'unknown'}) has held a transaction open for ${secs}s: ${t.query}`,
+      affected: `PID ${t.pid}`,
+      recommendation: 'Commit/rollback the work, or terminate the session if it is stuck.',
+      sql: `SELECT pg_terminate_backend(${t.pid});`,
+      fingerprint: `long_transaction:${t.pid}`,
+      autofix: true, safeAuto: false,
+    })
+  }
 
   // Blocking locks / deadlock risk
-  try {
-    const locks = await queryExternal<any>(connectionId, `
-      SELECT blocked.pid AS blocked_pid, blocking.pid AS blocking_pid,
-             LEFT(blocked.query, 120) AS blocked_query
-        FROM pg_stat_activity blocked
-        JOIN pg_stat_activity blocking
-          ON blocking.pid = ANY(pg_blocking_pids(blocked.pid))
-       WHERE cardinality(pg_blocking_pids(blocked.pid)) > 0
-       LIMIT 5
-    `)
-    for (const l of locks) {
-      issues.push({
-        issue_type: 'lock_contention',
-        severity: 'critical',
-        title: `Lock contention: PID ${l.blocked_pid} blocked by ${l.blocking_pid}`,
-        description: `Session ${l.blocked_pid} is waiting on a lock held by ${l.blocking_pid}: ${l.blocked_query}`,
-        affected: `PID ${l.blocked_pid} ← ${l.blocking_pid}`,
-        recommendation: 'Terminate the blocking session to release the lock and clear the wait chain.',
-        sql: `SELECT pg_terminate_backend(${l.blocking_pid});`,
-        fingerprint: `lock_contention:${l.blocking_pid}`,
-        autofix: true, safeAuto: false,
-      })
-    }
-  } catch { /* skip */ }
+  for (const l of locks) {
+    issues.push({
+      issue_type: 'lock_contention',
+      severity: 'critical',
+      title: `Lock contention: PID ${l.blocked_pid} blocked by ${l.blocking_pid}`,
+      description: `Session ${l.blocked_pid} is waiting on a lock held by ${l.blocking_pid}: ${l.blocked_query}`,
+      affected: `PID ${l.blocked_pid} ← ${l.blocking_pid}`,
+      recommendation: 'Terminate the blocking session to release the lock and clear the wait chain.',
+      sql: `SELECT pg_terminate_backend(${l.blocking_pid});`,
+      fingerprint: `lock_contention:${l.blocking_pid}`,
+      autofix: true, safeAuto: false,
+    })
+  }
 
   const penalty = issues.reduce((sum, i) => sum + SEVERITY_PENALTY[i.severity], 0)
   const healthScore = Math.max(0, 100 - penalty)
@@ -389,6 +375,143 @@ async function runScanMssql(connectionId: string): Promise<ScanResult> {
   return { connectionId, scannedAt: new Date().toISOString(), healthScore: Math.max(0, 100 - penalty), metrics, issues }
 }
 
+// ── Schema graph ─────────────────────────────────────────────────────────
+// Builds an ER-style view of the target's public schema: every table with its
+// columns (PK/FK flagged), live-row estimate, on-disk size, health stats and
+// the foreign-key relationships between tables.
+async function getSchemaGraph(connectionId: string) {
+  const [tables, columns, pks, fks] = await Promise.all([
+    queryExternal<any>(connectionId, `
+      SELECT t.relname AS table_name, t.n_live_tup, t.n_dead_tup, t.seq_scan, t.idx_scan,
+             ROUND(t.n_dead_tup::numeric / NULLIF(t.n_live_tup + t.n_dead_tup, 0) * 100, 1) AS bloat_pct,
+             pg_total_relation_size(quote_ident(t.schemaname) || '.' || quote_ident(t.relname)) AS size_bytes
+        FROM pg_stat_user_tables t
+       WHERE t.schemaname = 'public'
+       ORDER BY t.relname`),
+    queryExternal<any>(connectionId, `
+      SELECT table_name, column_name, data_type, is_nullable, ordinal_position
+        FROM information_schema.columns
+       WHERE table_schema = 'public'
+       ORDER BY table_name, ordinal_position`),
+    queryExternal<any>(connectionId, `
+      SELECT tc.table_name, kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema
+       WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public'`),
+    queryExternal<any>(connectionId, `
+      SELECT tc.table_name AS from_table, kcu.column_name AS from_column,
+             ccu.table_name AS to_table, ccu.column_name AS to_column
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+       WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'`),
+  ])
+
+  const pkSet = new Set(pks.map((p) => `${p.table_name}.${p.column_name}`))
+  const fkMap = new Map<string, { table: string; column: string }>()
+  for (const f of fks) fkMap.set(`${f.from_table}.${f.from_column}`, { table: f.to_table, column: f.to_column })
+
+  const colsByTable = new Map<string, any[]>()
+  for (const c of columns) {
+    const list = colsByTable.get(c.table_name) ?? []
+    const key = `${c.table_name}.${c.column_name}`
+    list.push({
+      name: c.column_name,
+      type: c.data_type,
+      nullable: c.is_nullable === 'YES',
+      pk: pkSet.has(key),
+      fk: fkMap.get(key) ?? null,
+    })
+    colsByTable.set(c.table_name, list)
+  }
+
+  const tableList = tables.map((t) => {
+    const issues: { severity: string; label: string }[] = []
+    const bloat = Number(t.bloat_pct)
+    if (bloat >= 20) issues.push({ severity: bloat >= 40 ? 'high' : 'warning', label: `${bloat}% bloat` })
+    if (Number(t.seq_scan) > 50 && (t.idx_scan == null || Number(t.seq_scan) > Number(t.idx_scan) * 2) && Number(t.n_live_tup) > 1000)
+      issues.push({ severity: 'warning', label: 'missing index' })
+    return {
+      name: t.table_name,
+      rows: t.n_live_tup == null ? null : Number(t.n_live_tup),
+      deadRows: t.n_dead_tup == null ? null : Number(t.n_dead_tup),
+      sizeBytes: t.size_bytes == null ? null : Number(t.size_bytes),
+      bloatPct: t.bloat_pct == null ? null : Number(t.bloat_pct),
+      seqScan: t.seq_scan == null ? null : Number(t.seq_scan),
+      idxScan: t.idx_scan == null ? null : Number(t.idx_scan),
+      columns: colsByTable.get(t.table_name) ?? [],
+      issues,
+    }
+  })
+
+  const relationships = fks.map((f) => ({
+    from: f.from_table, fromColumn: f.from_column, to: f.to_table, toColumn: f.to_column,
+  }))
+
+  return { tables: tableList, relationships }
+}
+
+// ── Execution-plan capture ─────────────────────────────────────────────────
+// Captures real EXPLAIN (FORMAT JSON) plans for the busiest sequentially-scanned
+// tables so the Query Diff and JSON Explorer screens have genuine data. Uses plan
+// estimation only (no ANALYZE) so nothing is executed on the target. Throttled to
+// once an hour per connection so the 15s scan poller doesn't flood the table.
+function planNodeStats(planRoot: any): { cost: number; rows: number; seq: boolean; idx: boolean } {
+  let seq = false, idx = false
+  const walk = (n: any) => {
+    if (!n) return
+    if (n['Node Type'] === 'Seq Scan') seq = true
+    if (n['Node Type'] === 'Index Scan' || n['Node Type'] === 'Index Only Scan' || n['Node Type'] === 'Bitmap Index Scan') idx = true
+    for (const c of n['Plans'] || []) walk(c)
+  }
+  walk(planRoot)
+  return { cost: Number(planRoot?.['Total Cost'] ?? 0), rows: Number(planRoot?.['Plan Rows'] ?? 0), seq, idx }
+}
+
+async function captureSeqScanPlans(connectionId: string): Promise<void> {
+  try {
+    const recent = await queryOne<any>(
+      `SELECT COUNT(*)::int AS n, MAX(captured_at) AS last FROM query_plans WHERE connection_id = $1`,
+      [connectionId]
+    )
+    if (recent && recent.n > 0 && recent.last && Date.now() - new Date(recent.last).getTime() < 60 * 60 * 1000) return
+
+    const tables = await queryExternal<any>(connectionId, `
+      SELECT schemaname, relname AS tablename, seq_scan, n_live_tup
+        FROM pg_stat_user_tables
+       WHERE seq_scan > 0 AND n_live_tup > 100
+       ORDER BY seq_scan DESC
+       LIMIT 6`)
+
+    for (const t of tables) {
+      const queryText = `SELECT * FROM ${ident(t.schemaname, t.tablename)} LIMIT 1000`
+      const hash = crypto.createHash('md5').update(queryText.toLowerCase()).digest('hex')
+      const exists = await queryOne<any>(
+        `SELECT 1 FROM query_plans WHERE connection_id = $1 AND query_hash = $2 LIMIT 1`,
+        [connectionId, hash]
+      )
+      if (exists) continue
+      try {
+        const rows = await queryExternal<any>(connectionId, `EXPLAIN (FORMAT JSON) ${queryText}`)
+        const planJson = rows[0]?.['QUERY PLAN'] || rows[0]
+        const root = Array.isArray(planJson) ? planJson[0]?.Plan : planJson?.Plan
+        if (!root) continue
+        const s = planNodeStats(root)
+        await query(
+          `INSERT INTO query_plans
+             (connection_id, query_hash, query_text, plan_json, plan_type,
+              total_cost, execution_ms, rows_examined, has_seq_scan, has_index_scan)
+           VALUES ($1, $2, $3, $4::jsonb, 'before_fix', $5, NULL, $6, $7, $8)`,
+          [connectionId, hash, queryText, JSON.stringify(planJson), s.cost, s.rows, s.seq, s.idx]
+        )
+      } catch { /* skip this table */ }
+    }
+  } catch { /* capture is best-effort */ }
+}
+
 // Persist a scan's findings into detected_issues: upsert current issues and
 // auto-resolve previously-open scan issues that have cleared.
 async function persistScanIssues(connectionId: string, issues: ScanIssue[]): Promise<void> {
@@ -403,8 +526,8 @@ async function persistScanIssues(connectionId: string, issues: ScanIssue[]): Pro
     [connectionId, fingerprints.length ? fingerprints : ['']]
   )
 
-  for (const i of issues) {
-    await query(
+  await Promise.all(issues.map((i) =>
+    query(
       `INSERT INTO detected_issues
          (connection_id, issue_type, severity, title, description, affected_table, source, fingerprint)
        VALUES ($1, $2, $3, $4, $5, $6, 'scan', $7)
@@ -413,7 +536,7 @@ async function persistScanIssues(connectionId: string, issues: ScanIssue[]): Pro
                      description = EXCLUDED.description, detected_at = NOW()`,
       [connectionId, i.issue_type, i.severity, i.title, i.description, i.affected ?? null, i.fingerprint]
     )
-  }
+  ))
 }
 
 async function logAction(opts: {
@@ -464,6 +587,7 @@ export async function GET(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
+    await ensureSchema()
 
     const connectionId = req.nextUrl.searchParams.get('connectionId')
     const type         = req.nextUrl.searchParams.get('type') || 'metrics'
@@ -506,6 +630,9 @@ export async function GET(req: NextRequest) {
         case 'bloat':
           data = await queryExternal(connectionId, TABLE_BLOAT_SQL)
           break
+        case 'schema':
+          data = await getSchemaGraph(connectionId)
+          break
         case 'metrics':
           data = await queryExternal(connectionId, METRICS_SQL)
           data = data[0] // single row
@@ -542,6 +669,7 @@ export async function POST(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
+    await ensureSchema()
 
     const action = req.nextUrl.searchParams.get('action') || 'scan'
     const body   = await req.json()
@@ -596,6 +724,10 @@ export async function POST(req: NextRequest) {
       const autoApplied = conn.db_type === 'postgresql'
         ? await evaluateRules(connectionId, result.issues, authUser.userId)
         : []
+      // Capture real execution plans for the Query Diff / JSON Explorer screens
+      // (throttled internally to once an hour). Fire-and-forget so it never adds
+      // latency to the scan response — it swallows its own errors.
+      if (conn.db_type === 'postgresql') void captureSeqScanPlans(connectionId)
 
       await query(
         `UPDATE monitored_connections SET last_checked_at = NOW(), status = 'active' WHERE id = $1`,

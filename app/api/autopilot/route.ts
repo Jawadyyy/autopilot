@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
 import { getAuthUser, hasRole } from '@/lib/auth/jwt'
 import { ok, created, error, unauthorized, forbidden, notFound, serverError } from '@/lib/utils/response'
+import { ensureSchema } from '@/lib/db/ensureSchema'
 import { z } from 'zod'
 
 const RuleSchema = z.object({
@@ -18,12 +19,30 @@ export async function GET(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
+    await ensureSchema()
 
     const type = req.nextUrl.searchParams.get('type') || 'rules'
 
     if (type === 'rules') {
-      const rules = await query(`SELECT * FROM autopilot_rules ORDER BY created_at DESC`)
-      return ok(rules)
+      // Aggregate success/fail counts straight from autopilot_actions so we don't
+      // depend on a possibly-stale v_rule_effectiveness view. Falls back to the
+      // bare rule list if the actions table shape differs on older installs.
+      try {
+        const rules = await query(`
+          SELECT r.*,
+                 COUNT(a.id) FILTER (WHERE a.status = 'applied') AS success_count,
+                 COUNT(a.id) FILTER (WHERE a.status = 'failed')  AS fail_count,
+                 ROUND(100.0 * COUNT(a.id) FILTER (WHERE a.status = 'applied')
+                       / NULLIF(COUNT(a.id), 0), 2)              AS success_rate
+            FROM autopilot_rules r
+            LEFT JOIN autopilot_actions a ON a.rule_id = r.id
+           GROUP BY r.id
+           ORDER BY r.created_at DESC`)
+        return ok(rules)
+      } catch {
+        const rules = await query(`SELECT * FROM autopilot_rules ORDER BY created_at DESC`)
+        return ok(rules)
+      }
     }
 
     if (type === 'actions') {

@@ -76,62 +76,62 @@ export default function BackupPage() {
   }
 
   const statusClass = (status: string) =>
-    status === 'success' ? 'bg-green-500/20 text-green-300' :
-    status === 'running' ? 'bg-blue-500/20 text-blue-300' :
-    status === 'failed'  ? 'bg-red-500/20 text-red-300' :
-    'bg-slate-500/20 text-slate-300'
+    status === 'success' ? 'bg-emerald-100 text-emerald-700' :
+    status === 'running' ? 'bg-blue-100 text-blue-700' :
+    status === 'failed'  ? 'bg-red-100 text-red-700' :
+    'bg-slate-100 text-slate-600'
 
   return (
     <AppShell>
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-white">Backup & Recovery Console</h1>
-            <p className="text-slate-400 mt-2">
+            <h1 className="text-3xl font-bold text-slate-900">Backup & Recovery Console</h1>
+            <p className="text-slate-500 mt-2">
               {canBackup ? `pg_dump / WAL recovery • ${selected!.name}` : 'Select a PostgreSQL database from the top bar to back it up.'}
             </p>
           </div>
           <button
             onClick={runBackup}
             disabled={running || !canBackup}
-            className="bg-[#2f75ff] hover:bg-[#4b8cff] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2 px-6 rounded-lg transition"
+            className="bg-[#2f6bff] hover:bg-[#1f54e0] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2 px-5 rounded-lg transition shadow-sm"
           >
             {running ? 'Starting...' : 'Run Backup Now'}
           </button>
         </div>
 
         {error && (
-          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">{error}</div>
+          <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>
         )}
 
-        <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
-          <h3 className="text-white font-semibold mb-4">Backup History</h3>
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-slate-900 font-semibold mb-4">Backup History</h3>
           {loading ? (
-            <p className="text-slate-400 text-sm">Loading backups...</p>
+            <p className="text-slate-500 text-sm">Loading backups...</p>
           ) : backups.length === 0 ? (
-            <p className="text-slate-400 text-sm">No backups yet. Run one to get started.</p>
+            <p className="text-slate-500 text-sm">No backups yet. Run one to get started.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left py-3 px-4 text-slate-400 font-semibold">STARTED (UTC)</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-semibold">DATABASE</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-semibold">SIZE</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-semibold">DURATION</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-semibold">STATUS</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-semibold">WAL LSN</th>
+                  <tr className="border-b border-slate-200">
+                    <th className="text-left py-3 px-4 text-slate-400 font-semibold text-xs uppercase tracking-wider">Started (UTC)</th>
+                    <th className="text-left py-3 px-4 text-slate-400 font-semibold text-xs uppercase tracking-wider">Database</th>
+                    <th className="text-left py-3 px-4 text-slate-400 font-semibold text-xs uppercase tracking-wider">Size</th>
+                    <th className="text-left py-3 px-4 text-slate-400 font-semibold text-xs uppercase tracking-wider">Duration</th>
+                    <th className="text-left py-3 px-4 text-slate-400 font-semibold text-xs uppercase tracking-wider">Status</th>
+                    <th className="text-left py-3 px-4 text-slate-400 font-semibold text-xs uppercase tracking-wider">WAL LSN</th>
                   </tr>
                 </thead>
                 <tbody>
                   {backups.map((b) => (
-                    <tr key={b.id} className="border-b border-white/10 hover:bg-white/5 transition">
-                      <td className="py-3 px-4 text-white text-xs">
+                    <tr key={b.id} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                      <td className="py-3 px-4 text-slate-700 text-xs">
                         {b.started_at ? new Date(b.started_at).toLocaleString() : '—'}
                       </td>
-                      <td className="py-3 px-4 text-slate-300 text-xs">{b.db_name}</td>
-                      <td className="py-3 px-4 text-slate-300">{b.size_mb != null ? `${b.size_mb} MB` : '—'}</td>
-                      <td className="py-3 px-4 text-slate-300">{duration(b.started_at, b.completed_at)}</td>
+                      <td className="py-3 px-4 text-slate-600 text-xs">{b.db_name}</td>
+                      <td className="py-3 px-4 text-slate-600">{b.size_mb != null ? `${b.size_mb} MB` : '—'}</td>
+                      <td className="py-3 px-4 text-slate-600">{duration(b.started_at, b.completed_at)}</td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-1 rounded text-xs font-semibold ${statusClass(b.status)}`}>
                           {b.status}

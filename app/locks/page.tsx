@@ -87,75 +87,75 @@ export default function LocksPage() {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-white">Concurrency & Locks</h1>
-            <p className="text-slate-400 mt-2">
+            <h1 className="text-3xl font-bold text-slate-900">Concurrency & Locks</h1>
+            <p className="text-slate-500 mt-2">
               {connName ? `Live sessions • ${connName}` : 'Live session monitor'}
             </p>
           </div>
           <div className="flex gap-2">
-            <span className="px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-300 text-sm font-semibold">{waiters} Waiting</span>
-            <span className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-sm font-semibold">{activeCount} Active</span>
+            <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-sm font-semibold">{waiters} Waiting</span>
+            <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-semibold">{activeCount} Active</span>
           </div>
         </div>
 
         {error && (
-          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">{error}</div>
+          <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>
         )}
 
         <div className="grid md:grid-cols-3 gap-4">
-          <div className="bg-[#0c1628] border border-white/10 rounded-lg p-4">
-            <p className="text-slate-400 text-xs uppercase">Active Sessions</p>
-            <p className="text-2xl font-bold text-white mt-2">{locks.length}</p>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <p className="text-slate-400 text-xs uppercase tracking-wider font-medium">Active Sessions</p>
+            <p className="text-2xl font-bold text-slate-900 mt-2">{locks.length}</p>
           </div>
-          <div className="bg-[#0c1628] border border-white/10 rounded-lg p-4">
-            <p className="text-slate-400 text-xs uppercase">Waiting</p>
-            <p className="text-2xl font-bold text-yellow-300 mt-2">{waiters}</p>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <p className="text-slate-400 text-xs uppercase tracking-wider font-medium">Waiting</p>
+            <p className="text-2xl font-bold text-amber-600 mt-2">{waiters}</p>
           </div>
-          <div className="bg-[#0c1628] border border-white/10 rounded-lg p-4">
-            <p className="text-slate-400 text-xs uppercase">Active</p>
-            <p className="text-2xl font-bold text-green-400 mt-2">{activeCount}</p>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <p className="text-slate-400 text-xs uppercase tracking-wider font-medium">Active</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-2">{activeCount}</p>
           </div>
         </div>
 
-        <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
-          <h3 className="text-white font-semibold mb-4">Active Sessions</h3>
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-slate-900 font-semibold mb-4">Active Sessions</h3>
           {loading ? (
-            <p className="text-slate-400 text-sm">Loading sessions...</p>
+            <p className="text-slate-500 text-sm">Loading sessions...</p>
           ) : locks.length === 0 ? (
-            <p className="text-slate-400 text-sm">No non-idle sessions right now.</p>
+            <p className="text-slate-500 text-sm">No non-idle sessions right now.</p>
           ) : (
             <div className="space-y-3">
               {locks.map((lock, i) => (
                 <div
                   key={i}
                   onClick={() => setExpandedLock(expandedLock === i ? null : i)}
-                  className={`p-4 rounded-lg border cursor-pointer transition ${
-                    lock.state === 'blocker' ? 'border-red-500/50 bg-red-500/10' :
-                    lock.state === 'waiting' ? 'border-yellow-500/50 bg-yellow-500/10' :
-                    lock.state === 'active' ? 'border-blue-500/50 bg-blue-500/10' :
-                    'border-slate-700 bg-slate-900/20'
+                  className={`p-4 rounded-xl border cursor-pointer transition ${
+                    lock.state === 'blocker' ? 'border-red-200 bg-red-50' :
+                    lock.state === 'waiting' ? 'border-amber-200 bg-amber-50' :
+                    lock.state === 'active' ? 'border-blue-200 bg-blue-50' :
+                    'border-slate-200 bg-slate-50'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-bold px-2 py-1 rounded ${
-                          lock.state === 'blocker' ? 'bg-red-500/30 text-red-300' :
-                          lock.state === 'waiting' ? 'bg-yellow-500/30 text-yellow-300' :
-                          lock.state === 'active' ? 'bg-blue-500/30 text-blue-300' :
-                          'bg-slate-600/30 text-slate-300'
+                          lock.state === 'blocker' ? 'bg-red-100 text-red-700' :
+                          lock.state === 'waiting' ? 'bg-amber-100 text-amber-800' :
+                          lock.state === 'active' ? 'bg-blue-100 text-blue-700' :
+                          'bg-slate-200 text-slate-600'
                         }`}>
                           {lock.state.toUpperCase()}
                         </span>
-                        <span className="text-white font-semibold">PID {lock.pid}</span>
+                        <span className="text-slate-900 font-semibold">PID {lock.pid}</span>
                         {lock.blocker_pid && (
                           <span className="text-xs text-slate-400">blocked by PID {lock.blocker_pid}</span>
                         )}
                       </div>
-                      <p className="text-slate-400 text-sm mt-2 font-mono break-all">{lock.query_snippet}</p>
+                      <p className="text-slate-500 text-sm mt-2 font-mono break-all">{lock.query_snippet}</p>
                     </div>
                     <div className="text-right ml-4">
-                      <p className="text-sm font-semibold text-white">{lock.duration}</p>
+                      <p className="text-sm font-semibold text-slate-900">{lock.duration}</p>
                     </div>
                   </div>
                 </div>

@@ -1,6 +1,8 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
+import { LogoMark } from '../components/Logo'
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState('')
@@ -52,71 +54,72 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#050507] to-[#0a1628] flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl">
-        <div className="text-center mb-12">
+    <div className="min-h-screen bg-[#f6f7f9] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <div className="w-12 h-12 bg-[#2f75ff] rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">DA</span>
-            </div>
+            <LogoMark size={52} className="rounded-2xl shadow-sm" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">DB Autopilot</h1>
-          <p className="text-slate-300">SRE Command Center</p>
+          <h1 className="text-2xl font-bold text-slate-900">Welcome back</h1>
+          <p className="text-slate-500 text-sm mt-1">Sign in to the DB Autopilot SRE Center</p>
         </div>
 
-        <div className="bg-[#081f3f]/95 border border-white/10 rounded-[2rem] p-12 shadow-[0_30px_70px_rgba(0,0,0,0.25)]">
-          <h2 className="text-xl font-semibold text-white mb-2">Authenticate</h2>
-          <p className="text-slate-400 text-sm mb-8">Enter your credentials to continue</p>
-
-            {error && (
-              <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-                <p className="text-sm text-red-400">{error}</p>
-              </div>
-            )}
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs uppercase tracking-[0.24em] text-slate-400 mb-2">
-                  SRE Username
-                </label>
-                <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0a1628]/50 border border-white/10 focus-within:border-[#2f75ff]/50 transition">
-                  <span className="text-slate-500">U</span>
-                  <input
-                    type="text"
-                    placeholder="your-sre-id"
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    className="flex-1 bg-transparent text-white placeholder-slate-600 outline-none text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs uppercase tracking-[0.24em] text-slate-400 mb-2">
-                  Encrypted Token
-                </label>
-                <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0a1628]/50 border border-white/10 focus-within:border-[#2f75ff]/50 transition">
-                  <span className="text-slate-500">P</span>
-                  <input
-                    type="password"
-                    placeholder="••••••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                    className="flex-1 bg-transparent text-white placeholder-slate-600 outline-none text-sm"
-                  />
-                </div>
-              </div>
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-lg">
+          {error && (
+            <div className="mb-5 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-700 whitespace-pre-wrap">{error}</p>
             </div>
+          )}
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Username
+              </label>
+              <input
+                type="text"
+                placeholder="your-sre-id"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-lg bg-white border border-slate-300 text-slate-900 placeholder-slate-400 text-sm outline-none focus:border-[#2f6bff] focus:ring-2 focus:ring-[#2f6bff]/15 transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Password
+              </label>
+              <input
+                type="password"
+                placeholder="••••••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                className="w-full px-3.5 py-2.5 rounded-lg bg-white border border-slate-300 text-slate-900 placeholder-slate-400 text-sm outline-none focus:border-[#2f6bff] focus:ring-2 focus:ring-[#2f6bff]/15 transition"
+              />
+            </div>
+          </div>
 
           <button
             onClick={handleLogin}
             disabled={loading}
-            className="w-full mt-6 bg-[#2f75ff] hover:bg-[#4b8cff] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-[1rem] transition shadow-lg shadow-[#2f75ff]/20"
+            className="w-full mt-6 bg-[#2f6bff] hover:bg-[#1f54e0] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition shadow-sm"
           >
-            {loading ? 'Authenticating...' : 'Initiate Session'}
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
+
+          <Link
+            href="/"
+            className="group mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-900"
+          >
+            <span className="transition-transform group-hover:-translate-x-0.5">←</span>
+            Back to home
+          </Link>
         </div>
+
+        <p className="text-center text-xs text-slate-400 mt-6">
+          © {new Date().getFullYear()} DB Autopilot · PostgreSQL &amp; MSSQL
+        </p>
       </div>
     </div>
   )

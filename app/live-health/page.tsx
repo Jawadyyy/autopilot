@@ -24,21 +24,21 @@ export default function LiveHealthPage() {
       <div className="space-y-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-3xl font-bold text-white">Live Health Feed</h1>
-            <p className="text-slate-400 mt-2">
+            <h1 className="text-3xl font-bold text-slate-900">Live Health Feed</h1>
+            <p className="text-slate-500 mt-2">
               {selected ? `Continuous scan of ${selected.name}` : 'Select a connected database to begin live monitoring.'}
             </p>
           </div>
           <div className="flex items-center gap-4">
             {score != null && (
               <div className="text-right">
-                <p className="text-xs uppercase tracking-widest text-slate-400">Health</p>
+                <p className="text-xs uppercase tracking-wider font-medium text-slate-400">Health</p>
                 <p className={`text-2xl font-bold ${healthTone(score)}`}>{score}%</p>
               </div>
             )}
             <button
               onClick={() => setScanLive(!scanLive)}
-              className="text-sm font-semibold px-4 py-2 rounded-lg bg-white/5 text-slate-200 hover:bg-white/10 transition"
+              className="text-sm font-semibold px-4 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
             >
               {scanLive ? '⏸ Pause live' : '▶ Resume live'}
             </button>
@@ -46,23 +46,23 @@ export default function LiveHealthPage() {
         </div>
 
         {scan?.autoApplied && scan.autoApplied.length > 0 && (
-          <div className="p-4 rounded-lg bg-[#2f75ff]/10 border border-[#2f75ff]/30 text-sm text-[#7faaff]">
+          <div className="p-4 rounded-xl bg-[#eef3ff] border border-[#cfddff] text-sm text-[#1f54e0]">
             ⚡ Autopilot auto-fixed {scan.autoApplied.length} issue(s): {scan.autoApplied.map((a) => a.issue_type).join(', ')}
           </div>
         )}
 
         {scanError && (
-          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">
+          <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
             {scanError}
-            <span className="block text-xs text-slate-500 mt-1">Some checks need <code>pg_stat_statements</code> on the target database.</span>
+            <span className="block text-xs text-slate-400 mt-1">Some checks need <code>pg_stat_statements</code> on the target database.</span>
           </div>
         )}
 
         <div className="grid md:grid-cols-4 gap-4">
-          <Stat label="Total Issues" value={issues.length} tone="text-white" />
-          <Stat label="Critical" value={count('critical')} tone="text-red-400" />
-          <Stat label="High" value={count('high')} tone="text-orange-400" />
-          <Stat label="Warnings" value={count('warning')} tone="text-yellow-300" />
+          <Stat label="Total Issues" value={issues.length} tone="text-slate-900" />
+          <Stat label="Critical" value={count('critical')} tone="text-red-600" />
+          <Stat label="High" value={count('high')} tone="text-orange-600" />
+          <Stat label="Warnings" value={count('warning')} tone="text-amber-600" />
         </div>
 
         <div className="flex gap-2 flex-wrap">
@@ -71,7 +71,7 @@ export default function LiveHealthPage() {
               key={f}
               onClick={() => setFilter(f)}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-                filter === f ? 'bg-[#2f75ff] text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                filter === f ? 'bg-[#2f6bff] text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
               {f.charAt(0).toUpperCase() + f.slice(1)}{f !== 'all' && ` (${count(f as Severity)})`}
@@ -80,11 +80,11 @@ export default function LiveHealthPage() {
         </div>
 
         {!selectedId ? (
-          <div className="p-6 bg-white/5 border border-white/10 rounded-[1.5rem] text-sm text-slate-300">
+          <div className="p-6 bg-white border border-slate-200 rounded-2xl text-sm text-slate-600 shadow-sm">
             No database selected. Pick one from the “Active DB” menu in the top bar.
           </div>
         ) : scanLoading && !scan ? (
-          <div className="text-slate-300">Running first scan of {selected?.name}…</div>
+          <div className="text-slate-500">Running first scan of {selected?.name}…</div>
         ) : (
           <IssuesList issues={filtered} canApply={canApply} onApply={applyFix} />
         )}
@@ -95,8 +95,8 @@ export default function LiveHealthPage() {
 
 function Stat({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
-    <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-5">
-      <p className="text-slate-400 text-xs uppercase">{label}</p>
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+      <p className="text-slate-400 text-xs uppercase tracking-wider font-medium">{label}</p>
       <p className={`text-3xl font-bold mt-2 ${tone}`}>{value}</p>
     </div>
   )

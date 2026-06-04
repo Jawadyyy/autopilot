@@ -63,45 +63,49 @@ export default function OLAPPage() {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-white">OLAP Incident Analytics</h1>
-            <p className="text-slate-400 mt-2">Star-schema warehouse fed by the OLTP → OLAP ETL pipeline.</p>
+            <h1 className="text-3xl font-bold text-slate-900">OLAP Incident Analytics</h1>
+            <p className="text-slate-500 mt-2">
+              {summary?.warehouse === 'mssql'
+                ? 'Star-schema warehouse (MSSQL) fed by the OLTP → OLAP ETL pipeline.'
+                : 'Live incident analytics computed from the OLTP store. Configure MSSQL + Run ETL for the full star-schema warehouse.'}
+            </p>
           </div>
-          {canEtl && (
+          {canEtl && summary?.warehouse === 'mssql' && (
             <button
               onClick={runEtl}
               disabled={running}
-              className="bg-[#2f75ff] hover:bg-[#4b8cff] disabled:opacity-50 text-white font-semibold py-2 px-6 rounded-lg transition"
+              className="bg-[#2f6bff] hover:bg-[#1f54e0] disabled:opacity-50 text-white font-semibold py-2 px-5 rounded-lg transition shadow-sm"
             >
               {running ? 'Running ETL…' : 'Run ETL'}
             </button>
           )}
         </div>
 
-        {etlMsg && <div className="p-3 rounded-lg bg-[#2f75ff]/10 border border-[#2f75ff]/30 text-sm text-[#7faaff]">{etlMsg}</div>}
+        {etlMsg && <div className="p-3 rounded-xl bg-[#eef3ff] border border-[#cfddff] text-sm text-[#1f54e0]">{etlMsg}</div>}
 
         {error ? (
-          <div className="p-6 rounded-[1.5rem] bg-yellow-500/10 border border-yellow-500/30 text-sm text-yellow-200">
+          <div className="p-6 rounded-2xl bg-amber-50 border border-amber-200 text-sm text-amber-800">
             <p className="font-semibold">Warehouse unavailable</p>
-            <p className="mt-1 text-yellow-200/80">{error}</p>
-            <p className="mt-2 text-xs text-slate-400">
+            <p className="mt-1 text-amber-700">{error}</p>
+            <p className="mt-2 text-xs text-slate-500">
               Configure MSSQL (MSSQL_* env vars), run <code>db/olap_schema.sql</code>, then click <strong>Run ETL</strong> to load incidents from PostgreSQL.
             </p>
           </div>
         ) : loading ? (
-          <div className="text-slate-300">Loading analytics…</div>
+          <div className="text-slate-500">Loading analytics…</div>
         ) : (
           <>
             <div className="grid md:grid-cols-4 gap-4">
               <Card label="Total Incidents" value={summary?.total_incidents ?? 0} />
-              <Card label="Resolved" value={summary?.total_resolved ?? 0} tone="text-green-400" />
-              <Card label="Fix Success Rate" value={summary?.fix_success_rate != null ? `${summary.fix_success_rate}%` : '—'} tone="text-green-400" />
+              <Card label="Resolved" value={summary?.total_resolved ?? 0} tone="text-emerald-600" />
+              <Card label="Fix Success Rate" value={summary?.fix_success_rate != null ? `${summary.fix_success_rate}%` : '—'} tone="text-emerald-600" />
               <Card label="Avg Resolution" value={summary?.avg_resolution_mins != null ? `${Math.round(summary.avg_resolution_mins)}m` : '—'} />
             </div>
 
-            <div className="bg-[#0c1628] border border-white/10 rounded-[1.5rem] p-6">
-              <h3 className="text-white font-semibold mb-4">Incidents: Hour vs. Day (CUBE)</h3>
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <h3 className="text-slate-900 font-semibold mb-4">Incidents: Hour vs. Day (CUBE)</h3>
               {max === 0 ? (
-                <p className="text-slate-400 text-sm">No incidents in the warehouse yet. Run the ETL after a few scans have logged issues.</p>
+                <p className="text-slate-500 text-sm">No incidents recorded yet. Let a few live scans run to log issues, then they will appear here.</p>
               ) : (
                 <div className="space-y-1">
                   {DAYS.map((day, d) => (
@@ -115,7 +119,7 @@ export default function OLAPPage() {
                               key={h}
                               title={`${day} ${h}:00 — ${c} incident(s)`}
                               className="flex-1 h-7 rounded-sm"
-                              style={{ backgroundColor: c ? `rgba(47,117,255,${0.2 + intensity * 0.8})` : 'rgba(255,255,255,0.04)' }}
+                              style={{ backgroundColor: c ? `rgba(47,107,255,${0.15 + intensity * 0.85})` : '#f1f3f6' }}
                             />
                           )
                         })}
@@ -133,10 +137,10 @@ export default function OLAPPage() {
   )
 }
 
-function Card({ label, value, tone = 'text-white' }: { label: string; value: string | number; tone?: string }) {
+function Card({ label, value, tone = 'text-slate-900' }: { label: string; value: string | number; tone?: string }) {
   return (
-    <div className="bg-[#0c1628] border border-white/10 rounded-lg p-4">
-      <p className="text-slate-400 text-xs uppercase">{label}</p>
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+      <p className="text-slate-400 text-xs uppercase tracking-wider font-medium">{label}</p>
       <p className={`text-2xl font-bold mt-2 ${tone}`}>{value}</p>
     </div>
   )

@@ -3,6 +3,7 @@ import { queryMssql } from '@/lib/db/mssql'
 import { query } from '@/lib/db/pool'
 import { getAuthUser, hasRole } from '@/lib/auth/jwt'
 import { ok, error, unauthorized, forbidden, serverError } from '@/lib/utils/response'
+import { ensureSchema } from '@/lib/db/ensureSchema'
 import { z } from 'zod'
 
 function severityLevel(sev: string): number {
@@ -100,65 +101,94 @@ const MEASURE_MAP: Record<string, string> = {
   fix_success_rate:     'ROUND(AVG(CAST(fi.fix_success AS FLOAT)) * 100, 2)',
 }
 
+// Postgres analytics fallback. When the MSSQL star-schema warehouse isn't
+// configured/reachable, we compute the same incident analytics directly from the
+// OLTP detected_issues table so the OLAP screen still serves real data.
+async function pgFallback(type: string, days: number) {
+  if (type === 'heatmap') {
+    return query<any>(`
+      SELECT EXTRACT(HOUR FROM detected_at)::int AS hour_of_day,
+             EXTRACT(DOW  FROM detected_at)::int AS day_of_week,
+             COUNT(*)::int                       AS incident_count
+        FROM detected_issues
+       GROUP BY 1, 2`)
+  }
+  if (type === 'trend') {
+    return query<any>(`
+      SELECT date_trunc('day', detected_at)::date AS date,
+             issue_type,
+             COUNT(*)::int                                            AS total,
+             COUNT(*) FILTER (WHERE is_resolved)::int                 AS resolved,
+             ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - detected_at)) / 60)
+                   FILTER (WHERE is_resolved))                        AS avg_resolution_mins
+        FROM detected_issues
+       WHERE detected_at >= NOW() - ($1 || ' days')::interval
+       GROUP BY 1, 2
+       ORDER BY 1 ASC`, [days])
+  }
+  // summary
+  const rows = await query<any>(`
+    SELECT COUNT(*)::int                                                          AS total_incidents,
+           COUNT(*) FILTER (WHERE is_resolved)::int                               AS total_resolved,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE is_resolved) / NULLIF(COUNT(*),0), 1) AS fix_success_rate,
+           ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - detected_at)) / 60)
+                 FILTER (WHERE is_resolved))                                      AS avg_resolution_mins,
+           COUNT(DISTINCT connection_id)::int                                     AS databases_monitored
+      FROM detected_issues`)
+  return rows[0]
+}
+
 // GET /api/olap?type=heatmap|trend|pivot|summary
 export async function GET(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
+    await ensureSchema()
 
     const type = req.nextUrl.searchParams.get('type') || 'summary'
+    const days = parseInt(req.nextUrl.searchParams.get('days') || '30')
 
-    // ── HEATMAP — incidents by hour vs day ────────────────
-    if (type === 'heatmap') {
-      const data = await queryMssql<any>(`
-        SELECT
-          dt.hour_of_day,
-          dt.day_of_week,
-          COUNT(fi.incident_id) AS incident_count,
-          AVG(fi.severity_level) AS avg_severity
-        FROM fact_incidents fi
-        JOIN dim_time dt ON dt.time_id = fi.time_id
-        GROUP BY dt.hour_of_day, dt.day_of_week
-        ORDER BY dt.day_of_week, dt.hour_of_day
-      `)
-      return ok(data)
+    // Try the MSSQL warehouse first; fall back to Postgres analytics if it's
+    // unavailable so the screen is never empty.
+    try {
+      if (type === 'heatmap') {
+        return ok(await queryMssql<any>(`
+          SELECT dt.hour_of_day, dt.day_of_week,
+                 COUNT(fi.incident_id) AS incident_count, AVG(fi.severity_level) AS avg_severity
+            FROM fact_incidents fi JOIN dim_time dt ON dt.time_id = fi.time_id
+           GROUP BY dt.hour_of_day, dt.day_of_week
+           ORDER BY dt.day_of_week, dt.hour_of_day`))
+      }
+      if (type === 'trend') {
+        return ok(await queryMssql<any>(`
+          SELECT CAST(dt.full_date AS DATE) AS date, dit.issue_category AS issue_type,
+                 COUNT(fi.incident_id) AS total, SUM(fi.is_resolved) AS resolved,
+                 AVG(fi.resolution_minutes) AS avg_resolution_mins
+            FROM fact_incidents fi
+            JOIN dim_time dt ON dt.time_id = fi.time_id
+            JOIN dim_issue_type dit ON dit.issue_type_id = fi.issue_type_id
+           WHERE dt.full_date >= DATEADD(day, -@days, GETDATE())
+           GROUP BY CAST(dt.full_date AS DATE), dit.issue_category
+           ORDER BY date ASC`, { days }))
+      }
+      if (type === 'summary') {
+        const data = await queryMssql<any>(`
+          SELECT COUNT(fi.incident_id) AS total_incidents, SUM(fi.is_resolved) AS total_resolved,
+                 ROUND(AVG(CAST(fi.fix_success AS FLOAT)) * 100, 2) AS fix_success_rate,
+                 AVG(fi.resolution_minutes) AS avg_resolution_mins,
+                 COUNT(DISTINCT fi.database_id) AS databases_monitored
+            FROM fact_incidents fi`)
+        return ok({ ...data[0], warehouse: 'mssql' })
+      }
+      return error('Invalid type. Use heatmap, trend, pivot or summary')
+    } catch {
+      if (!['heatmap', 'trend', 'summary'].includes(type)) {
+        return error('Invalid type. Use heatmap, trend, pivot or summary')
+      }
+      const data = await pgFallback(type, days)
+      const payload = type === 'summary' ? { ...(data as object), warehouse: 'postgres' } : data
+      return ok(payload)
     }
-
-    // ── TREND — incidents over time ───────────────────────
-    if (type === 'trend') {
-      const days = req.nextUrl.searchParams.get('days') || '30'
-      const data = await queryMssql<any>(`
-        SELECT
-          CAST(dt.full_date AS DATE)     AS date,
-          dit.issue_category             AS issue_type,
-          COUNT(fi.incident_id)          AS total,
-          SUM(fi.is_resolved)            AS resolved,
-          AVG(fi.resolution_minutes)     AS avg_resolution_mins
-        FROM fact_incidents fi
-        JOIN dim_time     dt  ON dt.time_id   = fi.time_id
-        JOIN dim_issue_type dit ON dit.issue_type_id = fi.issue_type_id
-        WHERE dt.full_date >= DATEADD(day, -@days, GETDATE())
-        GROUP BY CAST(dt.full_date AS DATE), dit.issue_category
-        ORDER BY date ASC
-      `, { days: parseInt(days) })
-      return ok(data)
-    }
-
-    // ── SUMMARY — overall stats ───────────────────────────
-    if (type === 'summary') {
-      const data = await queryMssql<any>(`
-        SELECT
-          COUNT(fi.incident_id)                              AS total_incidents,
-          SUM(fi.is_resolved)                               AS total_resolved,
-          ROUND(AVG(CAST(fi.fix_success AS FLOAT)) * 100, 2) AS fix_success_rate,
-          AVG(fi.resolution_minutes)                        AS avg_resolution_mins,
-          COUNT(DISTINCT fi.database_id)                    AS databases_monitored
-        FROM fact_incidents fi
-      `)
-      return ok(data[0])
-    }
-
-    return error('Invalid type. Use heatmap, trend, pivot or summary')
   } catch (err) {
     return serverError(err)
   }
@@ -173,8 +203,12 @@ export async function POST(req: NextRequest) {
     // Run the OLTP → OLAP ETL pipeline
     if (req.nextUrl.searchParams.get('action') === 'etl') {
       if (!hasRole(authUser.role, 'db_admin')) return forbidden()
-      const result = await runEtl()
-      return ok({ message: `ETL complete — ${result.processed} incident(s) processed`, ...result })
+      try {
+        const result = await runEtl()
+        return ok({ message: `ETL complete — ${result.processed} incident(s) processed`, ...result })
+      } catch {
+        return error('ETL needs the MSSQL warehouse. Set MSSQL_* env vars and run db/olap_schema.sql. Until then, analytics are served live from PostgreSQL.', 503)
+      }
     }
 
     const body   = await req.json()

@@ -63,7 +63,7 @@ export default function LiveMetrics({
 
   if (dbType !== 'postgresql') {
     return (
-      <div className="mt-3 p-4 rounded-lg bg-black/20 border border-white/10 text-sm text-slate-400">
+      <div className="mt-3 p-4 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-500">
         Live metrics are currently available for PostgreSQL connections only.
       </div>
     )
@@ -79,30 +79,30 @@ export default function LiveMetrics({
     {
       label: 'Cache Hit Ratio',
       value: cacheRatio != null ? `${cacheRatio.toFixed(2)}%` : '—',
-      tone: cacheRatio != null && cacheRatio >= 95 ? 'text-green-400' : 'text-yellow-300',
+      tone: cacheRatio != null && cacheRatio >= 95 ? 'text-emerald-600' : 'text-amber-600',
     },
     { label: 'Avg Query', value: avgQuery != null ? `${avgQuery.toFixed(1)}ms` : '—' },
     {
       label: 'Slow Queries',
       value: fmt(slowCount),
-      tone: slowCount != null && slowCount > 0 ? 'text-red-400' : 'text-green-400',
+      tone: slowCount != null && slowCount > 0 ? 'text-red-600' : 'text-emerald-600',
     },
   ]
 
   return (
-    <div className="mt-3 p-4 rounded-lg bg-black/20 border border-white/10">
+    <div className="mt-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${live ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
-          <span className="text-sm font-semibold text-white">Live metrics · {name}</span>
+          <span className={`w-2 h-2 rounded-full ${live ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+          <span className="text-sm font-semibold text-slate-900">Live metrics · {name}</span>
         </div>
         <div className="flex items-center gap-3">
           {updatedAt && (
-            <span className="text-xs text-slate-500">Updated {updatedAt.toLocaleTimeString()}</span>
+            <span className="text-xs text-slate-400">Updated {updatedAt.toLocaleTimeString()}</span>
           )}
           <button
             onClick={() => setLive((v) => !v)}
-            className="text-xs text-[#2f75ff] hover:text-[#4b8cff]"
+            className="text-xs font-medium text-[#2f6bff] hover:text-[#1f54e0]"
           >
             {live ? 'Pause' : 'Resume'}
           </button>
@@ -110,18 +110,18 @@ export default function LiveMetrics({
       </div>
 
       {error ? (
-        <p className="text-sm text-red-400">
+        <p className="text-sm text-red-600">
           {error}
-          <span className="block text-xs text-slate-500 mt-1">
+          <span className="block text-xs text-slate-400 mt-1">
             Tip: live query stats need the <code>pg_stat_statements</code> extension enabled on the target database.
           </span>
         </p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {cards.map((c) => (
-            <div key={c.label} className="bg-[#0c1628] border border-white/10 rounded-lg p-3">
+            <div key={c.label} className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs">
               <p className="text-[10px] uppercase tracking-wide text-slate-400">{c.label}</p>
-              <p className={`text-xl font-bold mt-1 ${c.tone ?? 'text-white'}`}>{c.value}</p>
+              <p className={`text-xl font-bold mt-1 ${c.tone ?? 'text-slate-900'}`}>{c.value}</p>
             </div>
           ))}
         </div>

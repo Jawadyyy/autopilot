@@ -3,6 +3,7 @@ import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal } from '@/lib/db/connections'
 import { getAuthUser } from '@/lib/auth/jwt'
 import { ok, created, error, unauthorized, serverError } from '@/lib/utils/response'
+import { ensureSchema } from '@/lib/db/ensureSchema'
 import crypto from 'crypto'
 import { z } from 'zod'
 
@@ -59,9 +60,17 @@ export async function GET(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
+    await ensureSchema()
 
     const connectionId = req.nextUrl.searchParams.get('connectionId')
     const issueId      = req.nextUrl.searchParams.get('issueId')
+    const planId       = req.nextUrl.searchParams.get('id')
+
+    // Single plan with full JSON (JSON Explorer detail view)
+    if (planId) {
+      const plan = await queryOne(`SELECT * FROM query_plans WHERE id = $1`, [planId])
+      return ok(plan)
+    }
 
     // Get before/after plans for a specific issue (diff viewer)
     if (issueId) {

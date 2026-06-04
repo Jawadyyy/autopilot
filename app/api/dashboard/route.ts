@@ -2,11 +2,13 @@ import { NextRequest } from 'next/server'
 import { query } from '@/lib/db/pool'
 import { getAuthUser } from '@/lib/auth/jwt'
 import { ok, unauthorized, serverError } from '@/lib/utils/response'
+import { ensureSchema } from '@/lib/db/ensureSchema'
 
 export async function GET(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
+    await ensureSchema()
 
     const [connections, events, severityCounts] = await Promise.all([
       query<any>(

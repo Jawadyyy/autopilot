@@ -34,7 +34,7 @@ export async function getExternalPgPool(connectionId: string): Promise<Pool> {
     database:                c.db_name,
     user:                    c.username,
     password,
-    max:                     5,
+    max:                     10,
     connectionTimeoutMillis: 8000,
     idleTimeoutMillis:       60000,
   })

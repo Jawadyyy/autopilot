@@ -23,10 +23,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`min-w-[220px] max-w-sm rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur ${
-              t.kind === 'success' ? 'border-green-500/40 bg-green-500/15 text-green-200' :
-              t.kind === 'error'   ? 'border-red-500/40 bg-red-500/15 text-red-200' :
-              'border-[#2f75ff]/40 bg-[#2f75ff]/15 text-[#cfe0ff]'
+            className={`min-w-[220px] max-w-sm rounded-xl border px-4 py-3 text-sm font-medium shadow-lg bg-white ${
+              t.kind === 'success' ? 'border-emerald-200 text-emerald-700' :
+              t.kind === 'error'   ? 'border-red-200 text-red-700' :
+              'border-[#cfddff] text-[#1f54e0]'
             }`}
           >
             {t.message}
