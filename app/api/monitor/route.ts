@@ -138,14 +138,20 @@ async function runScan(connectionId: string): Promise<ScanResult> {
        ORDER BY bloat_pct DESC NULLS LAST
        LIMIT 5`),
     safe(`
-      SELECT schemaname, relname AS tablename, seq_scan, idx_scan, n_live_tup
-        FROM pg_stat_user_tables
-       WHERE seq_scan > 50 AND n_live_tup > 1000
-         AND (idx_scan IS NULL OR seq_scan > idx_scan * 2)
-       ORDER BY seq_scan DESC
+      SELECT s.schemaname, s.relname AS tablename, s.seq_scan, s.idx_scan, s.n_live_tup,
+             (SELECT c.column_name
+                FROM information_schema.columns c
+               WHERE c.table_schema = s.schemaname AND c.table_name = s.relname
+                 AND c.column_name <> 'id'
+               ORDER BY c.ordinal_position
+               LIMIT 1) AS idx_col
+        FROM pg_stat_user_tables s
+       WHERE s.seq_scan > 50 AND s.n_live_tup > 1000
+         AND (s.idx_scan IS NULL OR s.seq_scan > s.idx_scan * 2)
+       ORDER BY s.seq_scan DESC
        LIMIT 5`),
     safe(`
-      SELECT LEFT(query, 160) AS query, calls,
+      SELECT queryid, LEFT(query, 160) AS query, calls,
              ROUND(mean_exec_time::numeric, 2) AS mean_ms
         FROM pg_stat_statements
        WHERE mean_exec_time > 500
@@ -220,33 +226,49 @@ async function runScan(connectionId: string): Promise<ScanResult> {
     }
   }
 
-  // Sequential scans on large tables → missing index candidates
+  // Sequential scans on large tables → missing index candidates.
+  // When we can identify a candidate column, emit an executable fix: create a
+  // B-tree index on it and reset the table's scan counters so the resolved
+  // issue doesn't immediately re-trigger off the historical seq_scan total.
   for (const t of seq) {
+    const col       = t.idx_col as string | null
+    const tableRef  = ident(t.schemaname, t.tablename)
+    const canIndex  = !!col
+    const indexName = col ? `idx_${t.tablename}_${col}`.replace(/[^a-zA-Z0-9_]/g, '_') : ''
     issues.push({
       issue_type: 'missing_index',
       severity: 'warning',
       title: `Frequent sequential scans: ${t.tablename}`,
       description: `${t.tablename} was sequentially scanned ${t.seq_scan} times (${Number(t.n_live_tup).toLocaleString()} rows). A supporting index is likely missing.`,
       affected: `${t.schemaname}.${t.tablename}`,
-      recommendation: 'Find the filtered/joined column with EXPLAIN ANALYZE and add a B-tree index.',
-      sql: `-- Confirm the scan, then index the filtered column:\nEXPLAIN ANALYZE SELECT * FROM ${ident(t.schemaname, t.tablename)} WHERE <column> = <value>;\nCREATE INDEX ON ${ident(t.schemaname, t.tablename)} (<column>);`,
+      recommendation: canIndex
+        ? `Add a B-tree index on "${col}" to replace the sequential scans.`
+        : 'Find the filtered/joined column with EXPLAIN ANALYZE and add a B-tree index.',
+      sql: canIndex
+        ? `CREATE INDEX IF NOT EXISTS ${indexName} ON ${tableRef} ("${col}");\nSELECT pg_stat_reset_single_table_counters('${tableRef}'::regclass);`
+        : `-- Confirm the scan, then index the filtered column:\nEXPLAIN ANALYZE SELECT * FROM ${tableRef} WHERE <column> = <value>;\nCREATE INDEX ON ${tableRef} (<column>);`,
       fingerprint: `missing_index:${t.schemaname}.${t.tablename}`,
-      autofix: false, safeAuto: false,
+      autofix: canIndex, safeAuto: false,
     })
   }
 
-  // Slow queries (needs pg_stat_statements)
+  // Slow queries (needs pg_stat_statements). When we have the queryid we can
+  // clear this specific statement's stats once it's been optimized (PG13+
+  // supports per-statement reset), which resolves just this one alert.
   for (const q of slow) {
-    const mean = Number(q.mean_ms)
+    const mean      = Number(q.mean_ms)
+    const hasId     = q.queryid != null
     issues.push({
       issue_type: 'slow_query',
       severity: mean > 2000 ? 'high' : 'warning',
       title: `Slow query (${mean}ms avg)`,
       description: `Called ${q.calls}× averaging ${mean}ms: ${q.query}`,
-      recommendation: 'Capture the plan and add indexes, or rewrite the query to avoid full scans/sorts.',
-      sql: `EXPLAIN (ANALYZE, BUFFERS) ${q.query};`,
+      recommendation: 'Capture the plan and add indexes/rewrite, then clear this statement’s stats to confirm the fix.',
+      sql: hasId
+        ? `-- Plan it first:\n-- EXPLAIN (ANALYZE, BUFFERS) ${q.query};\n-- After optimizing, clear this statement's stats:\nSELECT pg_stat_statements_reset(0, 0, ${q.queryid});`
+        : `EXPLAIN (ANALYZE, BUFFERS) ${q.query};`,
       fingerprint: `slow_query:${q.query.slice(0, 80)}`,
-      autofix: false, safeAuto: false,
+      autofix: hasId, safeAuto: false,
     })
   }
 

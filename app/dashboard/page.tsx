@@ -22,7 +22,7 @@ function Gauge({ score }: { score: number }) {
         cx="70" cy="70" r={r} fill="none" stroke={color} strokeWidth="12" strokeLinecap="round"
         strokeDasharray={c} strokeDashoffset={offset} style={{ transition: 'stroke-dashoffset 0.6s ease' }}
       />
-      <text x="70" y="64" textAnchor="middle" className="rotate-90" transform="rotate(90 70 70)" fill="#0f172a" fontSize="30" fontWeight="700">{score}</text>
+      <text x="70" y="64" textAnchor="middle" transform="rotate(90 70 70)" fill="#0f172a" fontSize="30" fontWeight="700">{score}</text>
       <text x="70" y="86" textAnchor="middle" transform="rotate(90 70 70)" fill="#94a3b8" fontSize="11">/ 100</text>
     </svg>
   )
