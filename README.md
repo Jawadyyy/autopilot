@@ -99,10 +99,7 @@ Open http://localhost:3000 and log in with the admin account above.
 > ```
 > Session counts and locks work without it.
 
-## Tech stack
-
-| Layer            | Tech                          |
-|------------------|-------------------------------|
+## Te
 | Frontend + API   | Next.js 16 (App Router)       |
 | Primary DB       | PostgreSQL (OLTP, JSONB, RLS) |
 | OLAP warehouse   | MSSQL (`/api/olap`)           |
