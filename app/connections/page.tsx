@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
 import LiveMetrics from '../components/LiveMetrics'
-import { useConnection, roleAtLeast } from '../components/ConnectionContext'
+import { useConnection } from '../components/ConnectionContext'
 import { useToast } from '../components/Toast'
 import { apiFetch } from '@/lib/api'
 
@@ -31,10 +31,12 @@ const EMPTY_FORM = {
 }
 
 export default function ConnectionsPage() {
-  const { role, refresh: refreshContext, setSelectedId } = useConnection()
+  const { refresh: refreshContext, setSelectedId } = useConnection()
   const { notify } = useToast()
-  const canManage = roleAtLeast(role, 'db_operator')
-  const canDelete = roleAtLeast(role, 'db_admin')
+  // Every signed-in user manages their own connections (the list is already
+  // scoped to what they own), so management actions are always available here.
+  const canManage = true
+  const canDelete = true
   const [connections, setConnections] = useState<Connection[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -167,8 +169,6 @@ export default function ConnectionsPage() {
           </div>
           <button
             onClick={openForm}
-            disabled={!canManage}
-            title={canManage ? '' : 'Requires db_operator or db_admin role'}
             className="bg-[#2f6bff] hover:bg-[#1f54e0] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2 px-5 rounded-lg transition shadow-sm"
           >
             + Connect New Database

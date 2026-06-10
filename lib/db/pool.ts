@@ -8,12 +8,15 @@ let pool: Pool | null = null
 export function getPool(): Pool {
   if (!pool) {
     pool = new Pool({
- connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:${process.env.POSTGRES_PORT || '5432'}/${process.env.POSTGRES_DB}`,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
-  ssl: { rejectUnauthorized: false },
-})
+      connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:${process.env.POSTGRES_PORT || '6543'}/${process.env.POSTGRES_DB}`,
+      // Serverless: each warm instance keeps its own small pool. Use Supabase's
+      // transaction pooler (port 6543) so many instances don't exhaust Postgres
+      // connections. Keep max small for the same reason.
+      max: Number(process.env.PG_POOL_MAX || 5),
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+      ssl: { rejectUnauthorized: false },
+    })
     pool.on('error', (err) => console.error('PG pool error:', err))
   }
   return pool

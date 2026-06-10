@@ -5,7 +5,7 @@ export type Severity     = 'info' | 'warning' | 'critical'
 export type FixMode      = 'auto' | 'suggest' | 'off'
 export type ActionStatus = 'pending' | 'applied' | 'failed' | 'rolled_back' | 'dismissed'
 export type BackupStatus = 'running' | 'success' | 'failed'
-export type UserRole     = 'db_viewer' | 'db_operator' | 'db_admin'
+export type UserRole     = 'admin' | 'user'
 export type LockState    = 'active' | 'blocker' | 'waiting' | 'idle'
 
 export interface Cluster {

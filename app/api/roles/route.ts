@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal } from '@/lib/db/connections'
-import { getAuthUser, hasRole } from '@/lib/auth/jwt'
-import { ok, created, error, unauthorized, forbidden, notFound, serverError } from '@/lib/utils/response'
+import { getAuthUser, requireConnection } from '@/lib/auth/jwt'
+import { ok, created, error, unauthorized, notFound, serverError } from '@/lib/utils/response'
 import { z } from 'zod'
 
 const GrantSchema = z.object({
@@ -44,12 +44,13 @@ export async function GET(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-    if (!hasRole(authUser.role, 'db_admin')) return forbidden()
 
     const connectionId = req.nextUrl.searchParams.get('connectionId')
     const type         = req.nextUrl.searchParams.get('type') || 'roles'
 
     if (!connectionId) return error('Missing connectionId')
+    // Only the owner of the external database (or an admin) may inspect its roles.
+    if (!(await requireConnection(authUser, connectionId, 'id'))) return notFound('Connection')
 
     if (type === 'roles') {
       // List all roles on the external database
@@ -113,10 +114,13 @@ export async function POST(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-    if (!hasRole(authUser.role, 'db_admin')) return forbidden()
 
     const action = req.nextUrl.searchParams.get('action')
     const body   = await req.json()
+
+    // Every action targets one external DB — the caller must own it (admin: any).
+    if (!body?.connectionId) return error('Missing connectionId')
+    if (!(await requireConnection(authUser, body.connectionId, 'id'))) return notFound('Connection')
 
     // ── CREATE ROLE ───────────────────────────────────────
     if (action === 'create_role') {
@@ -162,7 +166,7 @@ export async function POST(req: NextRequest) {
         [
           targetObject, roleName,
           JSON.stringify({ action: 'GRANT', privileges, objectType }),
-          authUser.username
+          authUser.email
         ]
       )
 

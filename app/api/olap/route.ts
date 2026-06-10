@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { queryMssql } from '@/lib/db/mssql'
 import { query } from '@/lib/db/pool'
-import { getAuthUser, hasRole } from '@/lib/auth/jwt'
+import { getAuthUser, ownedConnectionIds } from '@/lib/auth/jwt'
 import { ok, error, unauthorized, forbidden, serverError } from '@/lib/utils/response'
 import { ensureSchema } from '@/lib/db/ensureSchema'
 import { z } from 'zod'
@@ -104,14 +104,20 @@ const MEASURE_MAP: Record<string, string> = {
 // Postgres analytics fallback. When the MSSQL star-schema warehouse isn't
 // configured/reachable, we compute the same incident analytics directly from the
 // OLTP detected_issues table so the OLAP screen still serves real data.
-async function pgFallback(type: string, days: number) {
+async function pgFallback(type: string, days: number, ids: string[] | null) {
+  // ids === null → admin (all connections); otherwise scope to owned ones.
+  const scoped = ids !== null
+  const scopeAnd = scoped ? `AND connection_id = ANY($SCOPE)` : ''
+  const scopeWhere = scoped ? `WHERE connection_id = ANY($SCOPE)` : ''
+
   if (type === 'heatmap') {
     return query<any>(`
       SELECT EXTRACT(HOUR FROM detected_at)::int AS hour_of_day,
              EXTRACT(DOW  FROM detected_at)::int AS day_of_week,
              COUNT(*)::int                       AS incident_count
         FROM detected_issues
-       GROUP BY 1, 2`)
+       ${scopeWhere.replace('$SCOPE', '$1')}
+       GROUP BY 1, 2`, scoped ? [ids] : undefined)
   }
   if (type === 'trend') {
     return query<any>(`
@@ -123,8 +129,9 @@ async function pgFallback(type: string, days: number) {
                    FILTER (WHERE is_resolved))                        AS avg_resolution_mins
         FROM detected_issues
        WHERE detected_at >= NOW() - ($1 || ' days')::interval
+       ${scopeAnd.replace('$SCOPE', '$2')}
        GROUP BY 1, 2
-       ORDER BY 1 ASC`, [days])
+       ORDER BY 1 ASC`, scoped ? [days, ids] : [days])
   }
   // summary
   const rows = await query<any>(`
@@ -134,7 +141,8 @@ async function pgFallback(type: string, days: number) {
            ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - detected_at)) / 60)
                  FILTER (WHERE is_resolved))                                      AS avg_resolution_mins,
            COUNT(DISTINCT connection_id)::int                                     AS databases_monitored
-      FROM detected_issues`)
+      FROM detected_issues
+     ${scopeWhere.replace('$SCOPE', '$1')}`, scoped ? [ids] : undefined)
   return rows[0]
 }
 
@@ -148,8 +156,21 @@ export async function GET(req: NextRequest) {
     const type = req.nextUrl.searchParams.get('type') || 'summary'
     const days = parseInt(req.nextUrl.searchParams.get('days') || '30')
 
-    // Try the MSSQL warehouse first; fall back to Postgres analytics if it's
-    // unavailable so the screen is never empty.
+    // The MSSQL star-schema warehouse can't be filtered per-user, so only the
+    // admin sees it. Normal users get the Postgres fallback scoped to their own
+    // connections.
+    const ids = await ownedConnectionIds(authUser)
+    if (ids !== null) {
+      if (!['heatmap', 'trend', 'summary'].includes(type)) {
+        return error('Invalid type. Use heatmap, trend, pivot or summary')
+      }
+      const data = await pgFallback(type, days, ids)
+      const payload = type === 'summary' ? { ...(data as object), warehouse: 'postgres' } : data
+      return ok(payload)
+    }
+
+    // Admin — try the MSSQL warehouse first; fall back to Postgres analytics if
+    // it's unavailable so the screen is never empty.
     try {
       if (type === 'heatmap') {
         return ok(await queryMssql<any>(`
@@ -185,7 +206,7 @@ export async function GET(req: NextRequest) {
       if (!['heatmap', 'trend', 'summary'].includes(type)) {
         return error('Invalid type. Use heatmap, trend, pivot or summary')
       }
-      const data = await pgFallback(type, days)
+      const data = await pgFallback(type, days, null)
       const payload = type === 'summary' ? { ...(data as object), warehouse: 'postgres' } : data
       return ok(payload)
     }
@@ -200,9 +221,12 @@ export async function POST(req: NextRequest) {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
 
+    // The MSSQL warehouse (ETL + CUBE builder) is admin-only — it aggregates
+    // across all connections and can't be scoped per user.
+    if (authUser.role !== 'admin') return forbidden()
+
     // Run the OLTP → OLAP ETL pipeline
     if (req.nextUrl.searchParams.get('action') === 'etl') {
-      if (!hasRole(authUser.role, 'db_admin')) return forbidden()
       try {
         const result = await runEtl()
         return ok({ message: `ETL complete — ${result.processed} incident(s) processed`, ...result })

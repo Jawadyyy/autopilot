@@ -37,6 +37,9 @@ export async function getExternalPgPool(connectionId: string): Promise<Pool> {
     max:                     10,
     connectionTimeoutMillis: 8000,
     idleTimeoutMillis:       60000,
+    // Many managed Postgres (Neon, Supabase, RDS) require TLS. rejectUnauthorized
+    // false accepts their certs without bundling a CA — fine for monitoring.
+    ssl:                     { rejectUnauthorized: false },
   })
 
   pool.on('error', () => pgPools.delete(connectionId))
@@ -101,7 +104,7 @@ export async function testConnection(
 ): Promise<{ success: boolean; latencyMs: number; error?: string }> {
   const start = Date.now()
   if (dbType === 'postgresql') {
-    const pool = new Pool({ host, port, database: dbName, user: username, password, max: 1, connectionTimeoutMillis: 5000 })
+    const pool = new Pool({ host, port, database: dbName, user: username, password, max: 1, connectionTimeoutMillis: 5000, ssl: { rejectUnauthorized: false } })
     try {
       const client = await pool.connect()
       try {

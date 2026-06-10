@@ -2,9 +2,8 @@ import { NextRequest } from 'next/server'
 import crypto from 'crypto'
 import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal, queryExternalMssql } from '@/lib/db/connections'
-import { getAuthUser, hasRole } from '@/lib/auth/jwt'
-import { ok, unauthorized, forbidden, serverError, error } from '@/lib/utils/response'
-import { broadcast } from '@/lib/realtime'
+import { getAuthUser, requireConnection } from '@/lib/auth/jwt'
+import { ok, unauthorized, serverError, error } from '@/lib/utils/response'
 import { ensureSchema } from '@/lib/db/ensureSchema'
 
 // Queries run against external PostgreSQL databases
@@ -596,7 +595,6 @@ async function evaluateRules(connectionId: string, issues: ScanIssue[], userId?:
       )
       await logAction({ ruleId: rule.id, actionType: issue.issue_type, sql: issue.sql, status: 'applied', userId, notes: `Auto: ${issue.title}` })
       applied.push({ issue_type: issue.issue_type, affected: issue.affected, sql: issue.sql })
-      broadcast({ type: 'autofix', payload: { connectionId, issue_type: issue.issue_type, affected: issue.affected, rule: rule.name } })
     } catch (e: any) {
       await logAction({ ruleId: rule.id, actionType: issue.issue_type, sql: issue.sql, status: 'failed', userId, notes: e?.message })
     }
@@ -616,11 +614,8 @@ export async function GET(req: NextRequest) {
 
     if (!connectionId) return error('Missing connectionId')
 
-    // Verify connection exists and is active
-    const conn = await queryOne<any>(
-      `SELECT id, db_type, status FROM monitored_connections WHERE id = $1`,
-      [connectionId]
-    )
+    // Verify the caller owns this connection (admins: any) and it's active.
+    const conn = await requireConnection<any>(authUser, connectionId, 'id, db_type, status')
     if (!conn)              return error('Connection not found', 404)
     if (conn.status === 'paused') return error('Connection is paused', 400)
 
@@ -698,15 +693,11 @@ export async function POST(req: NextRequest) {
     const { connectionId } = body
     if (!connectionId) return error('Missing connectionId')
 
-    const conn = await queryOne<any>(
-      `SELECT id, db_type, status FROM monitored_connections WHERE id = $1`,
-      [connectionId]
-    )
+    const conn = await requireConnection<any>(authUser, connectionId, 'id, db_type, status')
     if (!conn) return error('Connection not found', 404)
 
     // ── APPLY FIX — execute a remediation statement on the target DB ──────
     if (action === 'apply_fix') {
-      if (!hasRole(authUser.role, 'db_operator')) return forbidden()
       const { sql, issue_type, fingerprint, title } = body
       if (!sql) return error('Missing sql to apply')
       if (conn.db_type !== 'postgresql') return error('Apply fix is available for PostgreSQL only', 400)
@@ -729,7 +720,6 @@ export async function POST(req: NextRequest) {
         ).catch(() => {})
       }
       await logAction({ actionType: issue_type || 'manual_fix', sql, status: 'applied', userId: authUser.userId, notes: title ?? null })
-      broadcast({ type: 'fix_applied', payload: { connectionId, issue_type, title, by: authUser.username } })
 
       return ok({ message: 'Fix applied successfully' })
     }
@@ -755,10 +745,6 @@ export async function POST(req: NextRequest) {
         `UPDATE monitored_connections SET last_checked_at = NOW(), status = 'active' WHERE id = $1`,
         [connectionId]
       ).catch(() => {})
-
-      if (result.issues.some((i) => i.severity === 'critical')) {
-        broadcast({ type: 'scan', payload: { connectionId, critical: result.issues.filter((i) => i.severity === 'critical').length } })
-      }
 
       return ok({ ...result, autoApplied })
     }

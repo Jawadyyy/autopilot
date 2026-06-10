@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal } from '@/lib/db/connections'
-import { getAuthUser, hasRole } from '@/lib/auth/jwt'
-import { ok, created, error, unauthorized, forbidden, notFound, serverError } from '@/lib/utils/response'
+import { getAuthUser, requireConnection, ownedConnectionIds } from '@/lib/auth/jwt'
+import { ok, created, error, unauthorized, notFound, serverError } from '@/lib/utils/response'
 import { decrypt } from '@/lib/utils/crypto'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -10,6 +10,10 @@ import path from 'path'
 import fs from 'fs'
 
 const execFileAsync = promisify(execFile)
+
+// On Vercel (and other serverless hosts) there's no pg_dump/psql binary and the
+// filesystem is read-only outside /tmp, so we skip physical dumps there.
+const HOSTED = !!process.env.VERCEL
 
 interface ConnectionRow {
   id:                 string
@@ -30,14 +34,26 @@ export async function GET(req: NextRequest) {
 
     const connectionId = req.nextUrl.searchParams.get('connectionId')
 
+    // Scope to the caller's own connections.
+    let where = ''
+    let params: any[] | undefined
+    if (connectionId) {
+      if (!(await requireConnection(authUser, connectionId, 'id'))) return notFound('Connection')
+      where = 'WHERE b.connection_id = $1'
+      params = [connectionId]
+    } else {
+      const ids = await ownedConnectionIds(authUser)
+      if (ids !== null) { where = 'WHERE b.connection_id = ANY($1)'; params = [ids] }
+    }
+
     const backups = await query(
       `SELECT b.*, c.name AS db_name
          FROM backup_history b
          JOIN monitored_connections c ON c.id = b.connection_id
-        ${connectionId ? 'WHERE b.connection_id = $1' : ''}
+        ${where}
         ORDER BY b.started_at DESC
         LIMIT 50`,
-      connectionId ? [connectionId] : undefined
+      params
     )
 
     return ok(backups)
@@ -51,7 +67,6 @@ export async function POST(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-    if (!hasRole(authUser.role, 'db_admin')) return forbidden()
 
     const action = req.nextUrl.searchParams.get('action') || 'backup'
     const body   = await req.json()
@@ -59,10 +74,7 @@ export async function POST(req: NextRequest) {
 
     if (!connectionId) return error('Missing connectionId')
 
-    const conn = await queryOne<ConnectionRow>(
-      `SELECT * FROM monitored_connections WHERE id = $1`,
-      [connectionId]
-    )
+    const conn = await requireConnection<ConnectionRow>(authUser, connectionId, '*')
     if (!conn) return notFound('Connection')
     if (conn.db_type !== 'postgresql') return error('Backup only supported for PostgreSQL')
 
@@ -70,90 +82,73 @@ export async function POST(req: NextRequest) {
 
     // ── RUN BACKUP ────────────────────────────────────────
     if (action === 'backup') {
-      const backupDir  = process.env.BACKUP_DIR || './backups'
-      const timestamp  = new Date().toISOString().replace(/[:.]/g, '-')
-      const fileName   = `${conn.db_name}_${timestamp}.sql`
-      const backupPath = path.join(backupDir, fileName)
-
-      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
-
       const backupRecord = await queryOne<{ id: string }>(
-        `INSERT INTO backup_history (connection_id, backup_path, status, started_at)
-         VALUES ($1, $2, 'running', NOW())
+        `INSERT INTO backup_history (connection_id, status, started_at)
+         VALUES ($1, 'running', NOW())
          RETURNING id`,
-        [connectionId, backupPath]
+        [connectionId]
       )
 
-      // Pass args as an array (no shell) and the password via the environment.
-      // This avoids shell command injection through host/db_name/username.
-      const args = [
-        '-h', conn.host,
-        '-p', String(conn.port),
-        '-U', conn.username,
-        '-d', conn.db_name,
-        '-f', backupPath,
-        '--verbose',
-      ]
-      const opts = { env: { ...process.env, PGPASSWORD: password } }
-
-      // Run the backup job. Prefer a real pg_dump; if the binary isn't installed
-      // on this host (common on dev/serverless), fall back to a logical snapshot
-      // captured over the SQL connection so recovery history is still meaningful.
+      // Always capture a logical snapshot over the SQL connection (no filesystem
+      // needed → works on Vercel). On a self-hosted box we additionally attempt a
+      // physical pg_dump to disk when the binary + a writable dir are available.
       ;(async () => {
         try {
-          await execFileAsync('pg_dump', args, opts)
-          const sizeMb = fs.statSync(backupPath).size / (1024 * 1024)
-          const lsn = await queryExternal<{ lsn: string }>(connectionId, `SELECT pg_current_wal_lsn()::text AS lsn`)
-            .then((r) => r[0]?.lsn ?? null).catch(() => null)
-          await query(
-            `UPDATE backup_history SET status='success', completed_at=NOW(), size_mb=$1, wal_lsn=$2, backup_path=$3 WHERE id=$4`,
-            [sizeMb.toFixed(2), lsn, backupPath, backupRecord!.id]
-          )
-        } catch (dumpErr: any) {
-          const noBinary = dumpErr?.code === 'ENOENT'
-          try {
-            // Logical snapshot: database size + per-table row counts as a manifest.
-            const meta = await queryExternal<any>(connectionId, `
-              SELECT pg_database_size(current_database()) AS size_bytes,
-                     (SELECT pg_current_wal_lsn()::text)   AS lsn,
-                     (SELECT count(*) FROM pg_stat_user_tables) AS table_count`)
-            const tables = await queryExternal<any>(connectionId, `
-              SELECT schemaname, relname AS table_name, n_live_tup AS rows
-                FROM pg_stat_user_tables ORDER BY n_live_tup DESC NULLS LAST`)
-            const manifestPath = backupPath.replace(/\.sql$/, '.snapshot.json')
-            fs.writeFileSync(manifestPath, JSON.stringify({
-              type: 'logical_snapshot',
-              database: conn.db_name,
-              capturedAt: new Date().toISOString(),
-              sizeBytes: Number(meta[0]?.size_bytes ?? 0),
-              tableCount: Number(meta[0]?.table_count ?? 0),
-              tables,
-            }, null, 2))
-            await query(
-              `UPDATE backup_history SET status='success', completed_at=NOW(), size_mb=$1, wal_lsn=$2,
-                      backup_path=$3, error_message=$4 WHERE id=$5`,
-              [
-                (Number(meta[0]?.size_bytes ?? 0) / (1024 * 1024)).toFixed(2),
-                meta[0]?.lsn ?? null,
-                manifestPath,
-                noBinary ? 'Logical snapshot (pg_dump not installed on host)' : 'Logical snapshot fallback',
-                backupRecord!.id,
-              ]
-            )
-          } catch (snapErr: any) {
-            await query(
-              `UPDATE backup_history SET status='failed', completed_at=NOW(), error_message=$1 WHERE id=$2`,
-              [snapErr?.message ?? dumpErr?.message ?? 'Backup failed', backupRecord!.id]
-            ).catch(() => {})
+          const meta = await queryExternal<any>(connectionId, `
+            SELECT pg_database_size(current_database()) AS size_bytes,
+                   (SELECT pg_current_wal_lsn()::text)   AS lsn,
+                   (SELECT count(*) FROM pg_stat_user_tables) AS table_count`)
+          const tables = await queryExternal<any>(connectionId, `
+            SELECT schemaname, relname AS table_name, n_live_tup AS rows
+              FROM pg_stat_user_tables ORDER BY n_live_tup DESC NULLS LAST`)
+
+          const snapshot = {
+            type: 'logical_snapshot',
+            database: conn.db_name,
+            capturedAt: new Date().toISOString(),
+            sizeBytes: Number(meta[0]?.size_bytes ?? 0),
+            tableCount: Number(meta[0]?.table_count ?? 0),
+            tables,
           }
+          const sizeMb = (Number(meta[0]?.size_bytes ?? 0) / (1024 * 1024)).toFixed(2)
+          const lsn = meta[0]?.lsn ?? null
+
+          let backupPath: string | null = null
+          let note = 'Logical snapshot (metadata, hosted-safe)'
+
+          // Physical dump only off-serverless (Vercel has no pg_dump and a
+          // read-only filesystem outside /tmp).
+          if (!HOSTED) {
+            try {
+              const backupDir = process.env.BACKUP_DIR || './backups'
+              if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
+              const fileName = `${conn.db_name}_${new Date().toISOString().replace(/[:.]/g, '-')}.sql`
+              const p = path.join(backupDir, fileName)
+              await execFileAsync('pg_dump', [
+                '-h', conn.host, '-p', String(conn.port), '-U', conn.username,
+                '-d', conn.db_name, '-f', p, '--verbose',
+              ], { env: { ...process.env, PGPASSWORD: password } })
+              backupPath = p
+              note = 'Physical pg_dump'
+            } catch { /* keep logical snapshot only */ }
+          }
+
+          await query(
+            `UPDATE backup_history
+                SET status='success', completed_at=NOW(), size_mb=$1, wal_lsn=$2,
+                    backup_path=$3, snapshot=$4::jsonb, error_message=$5
+              WHERE id=$6`,
+            [sizeMb, lsn, backupPath, JSON.stringify(snapshot), note, backupRecord!.id]
+          )
+        } catch (err: any) {
+          await query(
+            `UPDATE backup_history SET status='failed', completed_at=NOW(), error_message=$1 WHERE id=$2`,
+            [err?.message ?? 'Backup failed', backupRecord!.id]
+          ).catch(() => {})
         }
       })()
 
-      return created({
-        message:  'Backup started',
-        backupId: backupRecord!.id,
-        path:     backupPath,
-      })
+      return created({ message: 'Backup started', backupId: backupRecord!.id })
     }
 
     // ── RESTORE ───────────────────────────────────────────
@@ -161,14 +156,22 @@ export async function POST(req: NextRequest) {
       const { backupId } = body
       if (!backupId) return error('Missing backupId')
 
-      const backup = await queryOne<{ backup_path: string }>(
-        `SELECT backup_path FROM backup_history
+      const backup = await queryOne<{ backup_path: string; connection_id: string }>(
+        `SELECT backup_path, connection_id FROM backup_history
           WHERE id = $1 AND status = 'success'`,
         [backupId]
       )
       if (!backup)              return notFound('Backup')
-      if (!backup.backup_path)  return error('Backup file path not found')
-      if (!fs.existsSync(backup.backup_path)) return error('Backup file not found on disk')
+      // The backup must belong to the connection being restored (which the
+      // caller already owns) — never restore another user's snapshot.
+      if (backup.connection_id !== connectionId) return notFound('Backup')
+
+      // Physical restore needs a pg_dump file on disk + the psql binary, which
+      // only exist in self-hosted deployments. Hosted (Vercel) backups are
+      // metadata-only logical snapshots, so there's nothing to restore from.
+      if (HOSTED || !backup.backup_path || !fs.existsSync(backup.backup_path)) {
+        return error('Physical restore is only available in self-hosted mode. Hosted backups are metadata-only logical snapshots.', 400)
+      }
 
       const args = [
         '-h', conn.host,
@@ -183,7 +186,7 @@ export async function POST(req: NextRequest) {
       await query(
         `INSERT INTO audit_log (table_name, operation, record_id, new_data, changed_by)
          VALUES ('backup_history', 'UPDATE', $1, $2, $3)`,
-        [backupId, JSON.stringify({ action: 'restore', restoredBy: authUser.username }), authUser.username]
+        [backupId, JSON.stringify({ action: 'restore', restoredBy: authUser.email }), authUser.email]
       )
 
       execFileAsync('psql', args, opts)
@@ -204,16 +207,17 @@ export async function DELETE(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-    if (!hasRole(authUser.role, 'db_admin')) return forbidden()
 
     const id = req.nextUrl.searchParams.get('id')
     if (!id) return error('Missing id')
 
-    const backup = await queryOne<{ backup_path: string }>(
-      `SELECT backup_path FROM backup_history WHERE id = $1`,
+    const backup = await queryOne<{ backup_path: string; connection_id: string }>(
+      `SELECT backup_path, connection_id FROM backup_history WHERE id = $1`,
       [id]
     )
     if (!backup) return notFound('Backup')
+    // Only the owner of the backup's connection (or an admin) may delete it.
+    if (!(await requireConnection(authUser, backup.connection_id, 'id'))) return notFound('Backup')
 
     if (backup.backup_path && fs.existsSync(backup.backup_path)) {
       fs.unlinkSync(backup.backup_path)

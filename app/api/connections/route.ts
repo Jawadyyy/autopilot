@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
-import { getAuthUser, hasRole } from '@/lib/auth/jwt'
-import { ok, created, error, unauthorized, forbidden, notFound, serverError } from '@/lib/utils/response'
+import { getAuthUser, requireConnection } from '@/lib/auth/jwt'
+import { ok, created, error, unauthorized, notFound, serverError } from '@/lib/utils/response'
 import { testConnection, removePool } from '@/lib/db/connections'
 import { encrypt } from '@/lib/utils/crypto'
+import { ensureSchema } from '@/lib/db/ensureSchema'
 import { z } from 'zod'
 
 const ConnectionSchema = z.object({
@@ -22,12 +23,22 @@ export async function GET(req: NextRequest) {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
 
-    const data = await query(
-      `SELECT id, name, host, port, db_name, username, db_type, status,
-              last_checked_at, last_error, created_at
-         FROM monitored_connections
-        ORDER BY created_at DESC`
-    )
+    // Admins see every connection; normal users only the ones they added.
+    const data = authUser.role === 'admin'
+      ? await query(
+          `SELECT id, name, host, port, db_name, username, db_type, status,
+                  last_checked_at, last_error, created_at
+             FROM monitored_connections
+            ORDER BY created_at DESC`
+        )
+      : await query(
+          `SELECT id, name, host, port, db_name, username, db_type, status,
+                  last_checked_at, last_error, created_at
+             FROM monitored_connections
+            WHERE added_by = $1
+            ORDER BY created_at DESC`,
+          [authUser.userId]
+        )
     return ok(data)
   } catch (err) {
     return serverError(err)
@@ -39,7 +50,9 @@ export async function POST(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-    if (!hasRole(authUser.role, 'db_operator')) return forbidden()
+    // Make sure the legacy users FK on added_by is dropped before we insert a
+    // Supabase auth uid, and that the profiles table exists.
+    await ensureSchema()
 
     const body   = await req.json()
     const action = req.nextUrl.searchParams.get('action')
@@ -81,10 +94,13 @@ export async function PATCH(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-    if (!hasRole(authUser.role, 'db_operator')) return forbidden()
 
     const id = req.nextUrl.searchParams.get('id')
     if (!id) return error('Missing id')
+
+    // Ownership: a user may only touch a connection they added (admin: any).
+    const owned = await requireConnection<{ id: string }>(authUser, id, 'id')
+    if (!owned) return notFound('Connection')
 
     const { status } = await req.json()
     if (!['active', 'paused'].includes(status)) return error('Status must be active or paused')
@@ -107,14 +123,12 @@ export async function DELETE(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-    if (!hasRole(authUser.role, 'db_admin')) return forbidden()
 
     const id = req.nextUrl.searchParams.get('id')
     if (!id) return error('Missing id')
 
-    const conn = await queryOne<{ id: string; db_type: 'postgresql' | 'mssql' }>(
-      `SELECT id, db_type FROM monitored_connections WHERE id = $1`,
-      [id]
+    const conn = await requireConnection<{ id: string; db_type: 'postgresql' | 'mssql' }>(
+      authUser, id, 'id, db_type'
     )
     if (!conn) return notFound('Connection')
 

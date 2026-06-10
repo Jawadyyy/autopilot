@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal } from '@/lib/db/connections'
-import { getAuthUser } from '@/lib/auth/jwt'
-import { ok, error, unauthorized, serverError } from '@/lib/utils/response'
+import { getAuthUser, requireConnection, ownedConnectionIds } from '@/lib/auth/jwt'
+import { ok, error, unauthorized, notFound, serverError } from '@/lib/utils/response'
 import { ensureSchema } from '@/lib/db/ensureSchema'
 
 // GET /api/reports?type=performance|health|summary&connectionId=xxx
@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
     // ── PERFORMANCE REPORT ────────────────────────────────
     if (type === 'performance') {
       if (!connectionId) return error('Missing connectionId')
+      if (!(await requireConnection(authUser, connectionId, 'id'))) return notFound('Connection')
 
       // Top 10 slow queries from pg_stat_statements on external DB
       const slowQueries = await queryExternal<any>(connectionId, `
@@ -86,15 +87,19 @@ export async function GET(req: NextRequest) {
       return ok({ slowQueries, indexUsage, tableStats, healthScore: healthScore?.score, fixes })
     }
 
-    // ── HEALTH SUMMARY (all connections) ──────────────────
+    // ── HEALTH SUMMARY (caller's connections) ─────────────
     if (type === 'health') {
-      const summary = await query(`SELECT * FROM v_connection_health`)
+      const ids = await ownedConnectionIds(authUser)
+      const summary = ids === null
+        ? await query(`SELECT * FROM v_connection_health`)
+        : await query(`SELECT * FROM v_connection_health WHERE connection_id = ANY($1)`, [ids])
       return ok(summary)
     }
 
     // ── PERFORMANCE TREND (24h) ───────────────────────────
     if (type === 'trend') {
       if (!connectionId) return error('Missing connectionId')
+      if (!(await requireConnection(authUser, connectionId, 'id'))) return notFound('Connection')
 
       const trend = await query(
         `SELECT * FROM v_performance_trend_24h WHERE connection_id = $1`,
@@ -105,6 +110,18 @@ export async function GET(req: NextRequest) {
 
     // ── ISSUE SUMMARY ─────────────────────────────────────
     if (type === 'issues') {
+      // A specific connection must be owned; otherwise scope to all owned.
+      let where = ''
+      let params: any[] | undefined
+      if (connectionId) {
+        if (!(await requireConnection(authUser, connectionId, 'id'))) return notFound('Connection')
+        where = 'WHERE connection_id = $1'
+        params = [connectionId]
+      } else {
+        const ids = await ownedConnectionIds(authUser)
+        if (ids !== null) { where = 'WHERE connection_id = ANY($1)'; params = [ids] }
+      }
+
       const issueSummary = await query<any>(
         `SELECT
            issue_type,
@@ -114,10 +131,10 @@ export async function GET(req: NextRequest) {
            COUNT(*) FILTER (WHERE is_resolved = FALSE)  AS open,
            ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - detected_at)) / 60), 2) AS avg_resolution_mins
          FROM detected_issues
-         ${connectionId ? 'WHERE connection_id = $1' : ''}
+         ${where}
          GROUP BY issue_type, severity
          ORDER BY total DESC`,
-        connectionId ? [connectionId] : undefined
+        params
       )
       return ok(issueSummary)
     }

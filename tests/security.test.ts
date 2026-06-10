@@ -18,16 +18,21 @@ describe('crypto (stored DB passwords)', () => {
   })
 })
 
-describe('roleAtLeast (RBAC hierarchy)', () => {
-  it('grants when the role meets or exceeds the requirement', () => {
-    expect(roleAtLeast('db_admin', 'db_operator')).toBe(true)
-    expect(roleAtLeast('db_operator', 'db_operator')).toBe(true)
-    expect(roleAtLeast('db_admin', 'db_viewer')).toBe(true)
+describe('roleAtLeast (admin / user model)', () => {
+  it('lets any signed-in user operate on their own databases', () => {
+    expect(roleAtLeast('user', 'db_operator')).toBe(true)
+    expect(roleAtLeast('admin', 'db_operator')).toBe(true)
   })
 
-  it('denies when below the requirement or unauthenticated', () => {
-    expect(roleAtLeast('db_viewer', 'db_operator')).toBe(false)
-    expect(roleAtLeast('db_operator', 'db_admin')).toBe(false)
-    expect(roleAtLeast(null, 'db_viewer')).toBe(false)
+  it('reserves admin-tier gates for admins only', () => {
+    expect(roleAtLeast('admin', 'admin')).toBe(true)
+    expect(roleAtLeast('admin', 'db_admin')).toBe(true)
+    expect(roleAtLeast('user', 'admin')).toBe(false)
+    expect(roleAtLeast('user', 'db_admin')).toBe(false)
+  })
+
+  it('denies the unauthenticated', () => {
+    expect(roleAtLeast(null, 'db_operator')).toBe(false)
+    expect(roleAtLeast(null, 'admin')).toBe(false)
   })
 })

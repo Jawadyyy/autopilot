@@ -1,34 +1,22 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { jwtVerify } from 'jose'
+import { NextResponse, type NextRequest } from 'next/server'
+import { updateSession } from '@/lib/supabase/middleware'
 
-// Protect authenticated app pages: if there's no valid session cookie, send the
-// user to /login. API routes do their own auth via getAuthUser, so they're not
-// matched here. Verification uses jose (works in the edge runtime).
+// Protect authenticated app pages. Auth now rides on Supabase SSR session
+// cookies; updateSession() refreshes them and returns the validated user.
+// API routes do their own auth via getAuthUser, so they're not matched here.
 
-const PUBLIC_PATHS = ['/login']
-
-async function hasValidToken(req: NextRequest): Promise<boolean> {
-  const token = req.cookies.get('token')?.value
-  if (!token) return false
-  const secret = process.env.JWT_SECRET
-  if (!secret) return false
-  try {
-    await jwtVerify(token, new TextEncoder().encode(secret))
-    return true
-  } catch {
-    return false
-  }
-}
+const PUBLIC_PATHS = ['/login', '/signup', '/forgot-password', '/reset-password']
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
+  const { supabaseResponse, user } = await updateSession(req)
 
-  // Allow the landing page and the login page through untouched.
+  // Landing + auth pages always pass through (but keep refreshed cookies).
   if (pathname === '/' || PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next()
+    return supabaseResponse
   }
 
-  if (await hasValidToken(req)) return NextResponse.next()
+  if (user) return supabaseResponse
 
   const url = req.nextUrl.clone()
   url.pathname = '/login'

@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useConnection } from './ConnectionContext'
+import { createClient } from '@/lib/supabase/client'
 import MonitorBar from './MonitorBar'
 import { NavIcon, type IconName } from './NavIcons'
 import { LogoMark } from './Logo'
@@ -25,11 +26,11 @@ const mainNavItems: Array<{ label: string; href: string; icon: IconName }> = [
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const { connections, selectedId, setSelectedId, role: userRole, userName } = useConnection()
-  const roleLabel = userRole ? 'User' : 'Guest'
+  const roleLabel = userRole === 'admin' ? 'Admin' : userRole ? 'User' : 'Guest'
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' })
+      await createClient().auth.signOut()
     } catch { /* ignore */ }
     localStorage.removeItem('user_role')
     localStorage.removeItem('user')

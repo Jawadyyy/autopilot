@@ -64,13 +64,18 @@ Then open **OLAP Analytics → Run ETL** (admin only) to populate `fact_incident
 from `detected_issues`. Without MSSQL configured the screen shows a friendly
 "warehouse unavailable" notice.
 
-**Default login** is seeded for you:
+**Authentication** is handled by **Supabase Auth**. There is no seeded login —
+sign up at `/signup` (email + password), reset via `/forgot-password` (Supabase
+sends the email). Each user only sees the databases they connect.
 
-| Username | Password   | Role      |
-|----------|------------|-----------|
-| `admin`  | `admin123` | db_admin  |
+Set the single admin in `.env.local`:
 
-(Change it after first login.)
+```bash
+ADMIN_EMAIL=you@example.com   # this account sees ALL databases + manages rules/ETL
+```
+
+In the Supabase dashboard, set the **Site URL** and add `<origin>/reset-password`
+to the redirect allowlist so reset/confirm links work.
 
 ## 4. Run the app
 
@@ -79,7 +84,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 and log in with the admin account above.
+Open http://localhost:3000 and create an account.
 
 ## 5. Demo: connect a database and watch it live
 
@@ -106,5 +111,5 @@ Open http://localhost:3000 and log in with the admin account above.
 | Frontend + API   | Next.js 16 (App Router)       |
 | Primary DB       | PostgreSQL (OLTP, JSONB, RLS) |
 | OLAP warehouse   | MSSQL (`/api/olap`)           |
-| Auth             | JWT (`jose`) + bcrypt         |
-| Live feed        | Server-Sent Events (`/api/ws`)|
+| Auth             | Supabase Auth (per-user) + RLS |
+| Live feed        | Polling (`/api/health-events`) |

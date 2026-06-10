@@ -17,7 +17,7 @@ export type Conn = {
   last_error: string | null
 }
 
-export type Role = 'db_viewer' | 'db_operator' | 'db_admin' | null
+export type Role = 'admin' | 'user' | null
 
 type ScanState = ScanResult & { autoApplied?: { issue_type: string; affected?: string; sql: string }[] }
 
@@ -44,10 +44,18 @@ const ConnectionContext = createContext<Ctx | null>(null)
 const STORAGE_KEY = 'selected_connection'
 const SCAN_INTERVAL = 15000
 
-const ROLE_LEVELS: Record<string, number> = { db_viewer: 1, db_operator: 2, db_admin: 3 }
-export function roleAtLeast(role: Role, required: Exclude<Role, null>): boolean {
+// Two roles now: 'admin' (sees all databases, manages the rules engine) and
+// 'user' (manages only their own connected databases).
+//
+// roleAtLeast is kept as a compatibility shim for UI gates: any signed-in user
+// has full operator rights on their *own* databases (the API enforces per-user
+// ownership), while admin-tier gates (e.g. running the OLAP ETL) require admin.
+// `required` accepts both the new ('admin'/'user') and legacy
+// ('db_admin'/'db_operator'/'db_viewer') names.
+export function roleAtLeast(role: Role, required: string): boolean {
   if (!role) return false
-  return (ROLE_LEVELS[role] ?? 0) >= ROLE_LEVELS[required]
+  if (required === 'admin' || required === 'db_admin') return role === 'admin'
+  return true
 }
 
 export function ConnectionProvider({ children }: { children: ReactNode }) {
@@ -87,11 +95,18 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   }, [setSelectedId])
 
   useEffect(() => {
-    setRole(localStorage.getItem('user_role') as Role)
-    try {
-      const u = localStorage.getItem('user')
-      setUserName(u ? JSON.parse(u).username : null)
-    } catch { setUserName(null) }
+    // Only hit the profile endpoint when a session is likely (login stores a
+    // light 'user' marker). This keeps the public auth pages — /signup,
+    // /forgot-password, /reset-password — from bouncing logged-out visitors to
+    // /login via apiFetch's 401 handler.
+    if (typeof window !== 'undefined' && localStorage.getItem('user')) {
+      apiFetch('/api/auth')
+        .then((p: { email: string | null; role: Role }) => {
+          setRole(p?.role ?? null)
+          setUserName(p?.email ?? null)
+        })
+        .catch(() => { setRole(null); setUserName(null) })
+    }
     refresh()
   }, [refresh])
 

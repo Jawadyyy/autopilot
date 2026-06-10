@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
 import { queryExternal } from '@/lib/db/connections'
-import { getAuthUser } from '@/lib/auth/jwt'
-import { ok, created, error, unauthorized, serverError } from '@/lib/utils/response'
+import { getAuthUser, requireConnection, ownedConnectionIds } from '@/lib/auth/jwt'
+import { ok, created, error, unauthorized, notFound, serverError } from '@/lib/utils/response'
 import { ensureSchema } from '@/lib/db/ensureSchema'
 import crypto from 'crypto'
 import { z } from 'zod'
@@ -66,14 +66,22 @@ export async function GET(req: NextRequest) {
     const issueId      = req.nextUrl.searchParams.get('issueId')
     const planId       = req.nextUrl.searchParams.get('id')
 
-    // Single plan with full JSON (JSON Explorer detail view)
+    // Single plan with full JSON (JSON Explorer detail view) — only if the
+    // caller owns the plan's connection.
     if (planId) {
-      const plan = await queryOne(`SELECT * FROM query_plans WHERE id = $1`, [planId])
+      const plan = await queryOne<any>(`SELECT * FROM query_plans WHERE id = $1`, [planId])
+      if (!plan) return notFound('Plan')
+      if (!(await requireConnection(authUser, plan.connection_id, 'id'))) return notFound('Plan')
       return ok(plan)
     }
 
-    // Get before/after plans for a specific issue (diff viewer)
+    // Get before/after plans for a specific issue (diff viewer) — verify the
+    // issue belongs to an owned connection.
     if (issueId) {
+      const issue = await queryOne<{ connection_id: string }>(
+        `SELECT connection_id FROM detected_issues WHERE id = $1`, [issueId]
+      )
+      if (!issue || !(await requireConnection(authUser, issue.connection_id, 'id'))) return ok([])
       const plans = await query(
         `SELECT * FROM query_plans WHERE related_issue = $1 ORDER BY captured_at ASC`,
         [issueId]
@@ -84,24 +92,36 @@ export async function GET(req: NextRequest) {
     const cols = `id, connection_id, query_text, plan_type, total_cost,
                   execution_ms, has_seq_scan, has_index_scan, captured_at`
 
+    // Build an ownership-aware connection filter shared by the list queries.
+    let connFilter = ''
+    const connParams: any[] = []
+    if (connectionId) {
+      if (!(await requireConnection(authUser, connectionId, 'id'))) return notFound('Connection')
+      connParams.push(connectionId)
+      connFilter = `connection_id = $${connParams.length}::uuid`
+    } else {
+      const ids = await ownedConnectionIds(authUser)
+      if (ids !== null) { connParams.push(ids); connFilter = `connection_id = ANY($${connParams.length})` }
+    }
+
     if (req.nextUrl.searchParams.get('hasSeqScan') === 'true') {
       const plans = await query(
         `SELECT ${cols} FROM query_plans
           WHERE has_seq_scan = TRUE
-            AND ($1::uuid IS NULL OR connection_id = $1::uuid)
+            ${connFilter ? `AND ${connFilter}` : ''}
           ORDER BY execution_ms DESC
           LIMIT 50`,
-        [connectionId ?? null]
+        connParams.length ? connParams : undefined
       )
       return ok(plans)
     }
 
     const plans = await query(
       `SELECT ${cols} FROM query_plans
-        WHERE ($1::uuid IS NULL OR connection_id = $1::uuid)
+        ${connFilter ? `WHERE ${connFilter}` : ''}
         ORDER BY captured_at DESC
         LIMIT 100`,
-      [connectionId ?? null]
+      connParams.length ? connParams : undefined
     )
     return ok(plans)
   } catch (err) {
@@ -120,6 +140,8 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
 
     const { connectionId, queryText, issueId, planType } = parsed.data
+
+    if (!(await requireConnection(authUser, connectionId, 'id'))) return notFound('Connection')
 
     // Run EXPLAIN ANALYZE on the external database
     const explainSql = `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${queryText}`
@@ -168,33 +190,47 @@ export async function PUT(req: NextRequest) {
     const body   = await req.json()
     const { filter, connectionId, minRows } = body
 
+    // Ownership-aware connection filter (admins: all; users: their own).
+    let connFilter = ''
+    const connParams: any[] = []
+    if (connectionId) {
+      if (!(await requireConnection(authUser, connectionId, 'id'))) return notFound('Connection')
+      connParams.push(connectionId)
+      connFilter = `connection_id = $PLACEHOLDER::uuid`
+    } else {
+      const ids = await ownedConnectionIds(authUser)
+      if (ids !== null) { connParams.push(ids); connFilter = `connection_id = ANY($PLACEHOLDER)` }
+    }
+
     let sql = ''
     let params: any[] = []
 
     if (filter === 'seq_scan_large_tables') {
       // Week 13 - JSONB query using jsonb_path_query
+      params = [minRows ?? 10000, ...connParams]
+      const cf = connFilter ? `AND ${connFilter.replace('$PLACEHOLDER', '$2')}` : ''
       sql = `
         SELECT id, connection_id, query_text, plan_json, execution_ms, captured_at
         FROM query_plans
         WHERE has_seq_scan = TRUE
           AND rows_examined >= $1
-          AND ($2::uuid IS NULL OR connection_id = $2::uuid)
+          ${cf}
           AND plan_json @> '{"0": {"Plan": {"Node Type": "Seq Scan"}}}'::jsonb
         ORDER BY execution_ms DESC
         LIMIT 50
       `
-      params = [minRows ?? 10000, connectionId ?? null]
     } else {
       // Generic JSONB search
+      params = [JSON.stringify(body.jsonFilter ?? {}), ...connParams]
+      const cf = connFilter ? `AND ${connFilter.replace('$PLACEHOLDER', '$2')}` : ''
       sql = `
         SELECT id, connection_id, query_text, plan_json, execution_ms, captured_at
         FROM query_plans
         WHERE plan_json @> $1::jsonb
-          AND ($2::uuid IS NULL OR connection_id = $2::uuid)
+          ${cf}
         ORDER BY captured_at DESC
         LIMIT 50
       `
-      params = [JSON.stringify(body.jsonFilter ?? {}), connectionId ?? null]
     }
 
     const results = await query<any>(sql, params)

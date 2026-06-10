@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { query, queryOne } from '@/lib/db/pool'
-import { getAuthUser, hasRole } from '@/lib/auth/jwt'
+import { getAuthUser, requireConnection, ownedConnectionIds } from '@/lib/auth/jwt'
 import { ok, created, error, unauthorized, forbidden, notFound, serverError } from '@/lib/utils/response'
 import { ensureSchema } from '@/lib/db/ensureSchema'
 import { z } from 'zod'
@@ -14,6 +14,19 @@ const RuleSchema = z.object({
   mode:                z.enum(['auto', 'suggest', 'off']).default('suggest'),
 })
 
+// True when the issue belongs to a connection the caller may access. Used to
+// keep apply_fix / dismiss scoped to the user's own databases.
+async function ownsIssue(
+  authUser: import('@/lib/auth/jwt').AuthUser,
+  issueId: string
+): Promise<boolean> {
+  const issue = await queryOne<{ connection_id: string }>(
+    `SELECT connection_id FROM detected_issues WHERE id = $1`, [issueId]
+  )
+  if (!issue) return false
+  return !!(await requireConnection(authUser, issue.connection_id, 'id'))
+}
+
 // GET /api/autopilot?type=rules|actions|effectiveness
 export async function GET(req: NextRequest) {
   try {
@@ -22,6 +35,16 @@ export async function GET(req: NextRequest) {
     await ensureSchema()
 
     const type = req.nextUrl.searchParams.get('type') || 'rules'
+
+    // Rules themselves are a global engine config (readable by all), but every
+    // action/effectiveness aggregate is scoped to the caller's own connections.
+    const ids = await ownedConnectionIds(authUser)
+    const scoped = ids !== null
+    // Only count actions tied to issues on connections the caller owns.
+    const ownActionFilter = scoped
+      ? `AND a.issue_id IN (SELECT id FROM detected_issues WHERE connection_id = ANY($1))`
+      : ''
+    const aggParams = scoped ? [ids] : undefined
 
     if (type === 'rules') {
       // Aggregate success/fail counts straight from autopilot_actions so we don't
@@ -35,9 +58,9 @@ export async function GET(req: NextRequest) {
                  ROUND(100.0 * COUNT(a.id) FILTER (WHERE a.status = 'applied')
                        / NULLIF(COUNT(a.id), 0), 2)              AS success_rate
             FROM autopilot_rules r
-            LEFT JOIN autopilot_actions a ON a.rule_id = r.id
+            LEFT JOIN autopilot_actions a ON a.rule_id = r.id ${ownActionFilter}
            GROUP BY r.id
-           ORDER BY r.created_at DESC`)
+           ORDER BY r.created_at DESC`, aggParams)
         return ok(rules)
       } catch {
         const rules = await query(`SELECT * FROM autopilot_rules ORDER BY created_at DESC`)
@@ -46,12 +69,39 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === 'actions') {
-      const actions = await query(`SELECT * FROM v_action_log LIMIT 100`)
+      if (!scoped) {
+        const actions = await query(`SELECT * FROM v_action_log LIMIT 100`)
+        return ok(actions)
+      }
+      const actions = await query(`
+        SELECT a.id, a.action_type, a.status, a.applied_at, a.outcome_notes, a.sql_applied,
+               i.issue_type, i.severity, i.affected_table,
+               c.name AS connection_name, r.name AS rule_name
+          FROM autopilot_actions a
+          LEFT JOIN detected_issues       i ON i.id = a.issue_id
+          LEFT JOIN monitored_connections c ON c.id = i.connection_id
+          LEFT JOIN autopilot_rules       r ON r.id = a.rule_id
+         WHERE i.connection_id = ANY($1)
+         ORDER BY a.applied_at DESC
+         LIMIT 100`, [ids])
       return ok(actions)
     }
 
     if (type === 'effectiveness') {
-      const data = await query(`SELECT * FROM v_rule_effectiveness`)
+      if (!scoped) {
+        const data = await query(`SELECT * FROM v_rule_effectiveness`)
+        return ok(data)
+      }
+      const data = await query(`
+        SELECT r.id AS rule_id, r.name, r.issue_type, r.mode, r.is_active,
+               COUNT(a.id)                                     AS total_actions,
+               COUNT(a.id) FILTER (WHERE a.status = 'applied') AS applied_count,
+               COUNT(a.id) FILTER (WHERE a.status = 'failed')  AS failed_count,
+               ROUND(100.0 * COUNT(a.id) FILTER (WHERE a.status = 'applied')
+                     / NULLIF(COUNT(a.id), 0), 2)              AS success_rate
+          FROM autopilot_rules r
+          LEFT JOIN autopilot_actions a ON a.rule_id = r.id ${ownActionFilter}
+         GROUP BY r.id`, aggParams)
       return ok(data)
     }
 
@@ -71,8 +121,9 @@ export async function POST(req: NextRequest) {
     const body   = await req.json()
 
     // ── CREATE RULE ───────────────────────────────────────
+    // Rules drive the shared autofix engine, so only the admin manages them.
     if (action === 'create_rule') {
-      if (!hasRole(authUser.role, 'db_admin')) return forbidden()
+      if (authUser.role !== 'admin') return forbidden()
 
       const parsed = RuleSchema.safeParse(body)
       if (!parsed.success) return error('Invalid input', 400, parsed.error.flatten())
@@ -96,10 +147,9 @@ export async function POST(req: NextRequest) {
 
     // ── APPLY FIX ─────────────────────────────────────────
     if (action === 'apply_fix') {
-      if (!hasRole(authUser.role, 'db_operator')) return forbidden()
-
       const { issue_id, rule_id, action_type, sql_to_run } = body
       if (!issue_id || !action_type) return error('Missing issue_id or action_type')
+      if (!(await ownsIssue(authUser, issue_id))) return notFound('Issue')
 
       await query(
         `CALL sp_apply_fix($1, $2, $3, $4, $5)`,
@@ -111,10 +161,9 @@ export async function POST(req: NextRequest) {
 
     // ── DISMISS ISSUE ─────────────────────────────────────
     if (action === 'dismiss') {
-      if (!hasRole(authUser.role, 'db_operator')) return forbidden()
-
       const { issue_id } = body
       if (!issue_id) return error('Missing issue_id')
+      if (!(await ownsIssue(authUser, issue_id))) return notFound('Issue')
 
       await query(
         `CALL sp_resolve_issue($1, $2, $3)`,
@@ -135,7 +184,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-    if (!hasRole(authUser.role, 'db_admin')) return forbidden()
+    if (authUser.role !== 'admin') return forbidden()
 
     const id = req.nextUrl.searchParams.get('id')
     if (!id) return error('Missing rule id')
@@ -164,7 +213,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const authUser = await getAuthUser(req)
     if (!authUser) return unauthorized()
-    if (!hasRole(authUser.role, 'db_admin')) return forbidden()
+    if (authUser.role !== 'admin') return forbidden()
 
     const id = req.nextUrl.searchParams.get('id')
     if (!id) return error('Missing rule id')

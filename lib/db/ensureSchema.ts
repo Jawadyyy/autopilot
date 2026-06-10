@@ -8,6 +8,65 @@ import { query } from './pool'
 let ran: Promise<void> | null = null
 
 async function migrate(): Promise<void> {
+  // ── Auth: per-user profiles keyed by the Supabase auth user id ────────────
+  // Credentials live in Supabase Auth (auth.users); this table only stores the
+  // app role (admin/user). Provisioned lazily by lib/auth/ownership.ts.
+  await query(`
+    CREATE TABLE IF NOT EXISTS profiles (
+      id         uuid PRIMARY KEY,
+      email      text,
+      role       text NOT NULL DEFAULT 'user' CHECK (role IN ('admin','user')),
+      created_at timestamptz NOT NULL DEFAULT NOW()
+    )
+  `).catch(() => {})
+
+  // Ownership columns used to reference the legacy `users` table. Now they hold
+  // Supabase auth uids, so the old foreign keys would reject every insert. Drop
+  // any FK constraint on these columns (idempotent — no-op once removed).
+  const ownerCols: [string, string][] = [
+    ['monitored_connections', 'added_by'],
+    ['detected_issues',       'resolved_by'],
+    ['autopilot_actions',     'applied_by'],
+  ]
+  for (const [table, col] of ownerCols) {
+    await query(`
+      DO $$
+      DECLARE c text;
+      BEGIN
+        FOR c IN
+          SELECT tc.constraint_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON kcu.constraint_name = tc.constraint_name
+             AND kcu.table_schema   = tc.table_schema
+           WHERE tc.constraint_type = 'FOREIGN KEY'
+             AND tc.table_name = '${table}'
+             AND kcu.column_name = '${col}'
+        LOOP
+          EXECUTE format('ALTER TABLE ${table} DROP CONSTRAINT %I', c);
+        END LOOP;
+      END $$;
+    `).catch(() => {})
+  }
+
+  // ── Data-leak seal: deny-by-default RLS on every app table ────────────────
+  // Supabase auto-exposes public-schema tables over its REST API (PostgREST)
+  // using the *publishable* key, which ships to the browser. With RLS enabled
+  // and no permissive policy, that API returns zero rows to anon/authenticated
+  // callers — so nobody can read another user's connections/profiles/issues by
+  // hitting the Supabase REST endpoint directly. The app is unaffected because
+  // it connects as the table owner (POSTGRES_*), which bypasses RLS.
+  const rlsTables = [
+    'profiles', 'users', 'monitored_connections', 'detected_issues',
+    'autopilot_rules', 'autopilot_actions', 'query_plans',
+    'backup_history', 'audit_log',
+  ]
+  for (const t of rlsTables) {
+    await query(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).catch(() => {})
+  }
+  // Remove the legacy permissive policy that explicitly allowed reads.
+  await query(`DROP POLICY IF EXISTS p_issues_visibility ON detected_issues`).catch(() => {})
+
   // Some installs typed severity/issue_type as custom enums that don't contain
   // the values the scanner emits (e.g. enum severity missing 'warning'). Extend
   // those enums to cover every value the app uses. No-ops if the column is plain
@@ -67,6 +126,10 @@ async function migrate(): Promise<void> {
   for (const [col, def] of planCols) {
     await query(`ALTER TABLE query_plans ADD COLUMN IF NOT EXISTS ${col} ${def}`).catch(() => {})
   }
+
+  // backup_history — store the logical snapshot inline so hosted (serverless)
+  // backups survive without writing to the (read-only/ephemeral) filesystem.
+  await query(`ALTER TABLE backup_history ADD COLUMN IF NOT EXISTS snapshot jsonb`).catch(() => {})
 
   // Seed starter rules (non-critical — never let it abort the migration).
   await seedRules()

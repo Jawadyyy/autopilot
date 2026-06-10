@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { query } from '@/lib/db/pool'
-import { getAuthUser } from '@/lib/auth/jwt'
+import { getAuthUser, ownedConnectionIds } from '@/lib/auth/jwt'
 import { ok, unauthorized, serverError } from '@/lib/utils/response'
 import { ensureSchema } from '@/lib/db/ensureSchema'
 
@@ -10,24 +10,41 @@ export async function GET(req: NextRequest) {
     if (!authUser) return unauthorized()
     await ensureSchema()
 
+    // null = admin (no restriction); otherwise scope everything to the user's
+    // own connections. An empty list means the user has connected nothing yet.
+    const ids = await ownedConnectionIds(authUser)
+    const scoped = ids !== null
+
     const [connections, events, severityCounts] = await Promise.all([
-      query<any>(
-        `SELECT id, name, host, db_name, db_type, status, last_checked_at
-           FROM monitored_connections
-          ORDER BY created_at DESC`
-      ),
+      scoped
+        ? query<any>(
+            `SELECT id, name, host, db_name, db_type, status, last_checked_at
+               FROM monitored_connections
+              WHERE added_by = $1
+              ORDER BY created_at DESC`,
+            [authUser.userId]
+          )
+        : query<any>(
+            `SELECT id, name, host, db_name, db_type, status, last_checked_at
+               FROM monitored_connections
+              ORDER BY created_at DESC`
+          ),
       query<any>(
         `SELECT id, detected_at, detected_at AS timestamp, severity, title,
                 description, affected_table, affected_query, issue_type, is_resolved
            FROM detected_issues
+          ${scoped ? 'WHERE connection_id = ANY($1)' : ''}
           ORDER BY detected_at DESC
-          LIMIT 8`
+          LIMIT 8`,
+        scoped ? [ids] : undefined
       ),
       query<{ severity: string; count: string }>(
         `SELECT severity, COUNT(*) AS count
            FROM detected_issues
           WHERE is_resolved = FALSE
-          GROUP BY severity`
+          ${scoped ? 'AND connection_id = ANY($1)' : ''}
+          GROUP BY severity`,
+        scoped ? [ids] : undefined
       ),
     ])
 
